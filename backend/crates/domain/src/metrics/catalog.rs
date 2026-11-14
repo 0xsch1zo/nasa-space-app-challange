@@ -16,6 +16,7 @@ impl MetricCatalog {
             definitions::blood_pressure::definition(),
             definitions::bone_density::definition(),
             definitions::muscle_atrophy::definition(),
+            definitions::heart_rate::definition(),
         ])
     }
 
