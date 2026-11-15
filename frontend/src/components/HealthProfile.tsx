@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Stack } from '@mantine/core';
 import { useSearchParams } from 'react-router-dom';
 import { useAlerts, useAstronaut, useCatalog, useGroups, useOverview } from '../api/hooks';
 import type { Alert, HealthStatus } from '../api/types';
@@ -7,19 +7,18 @@ import { AlertsBanner } from '../alerts/AlertsBanner';
 import { ProfileSidebar } from '../dashboard/ProfileSidebar';
 import { ALERTS_TAB, ProfileTabs } from '../dashboard/ProfileTabs';
 import type { Focus } from '../dashboard/types';
-import { fmtDate, fromNow } from '../lib/dates';
 import { worstStatus } from '../lib/status';
 import { QueryState } from './QueryState';
 import { Sidebar, useSidebar } from './SidebarContext';
-import { StatusBadge } from './StatusBadge';
 
 /**
  * Full health profile of one astronaut (used by the astronaut view and by
  * supervisors). Layout:
- *   - side bar: one entry per parameter group (tab) + alerts,
- *   - top of the panel, above everything and independent of the tab:
- *     full-width alert banners (or the green all-clear bar),
- *   - astronaut header, then the selected tab's panel.
+ *   - side bar: one entry per parameter group (tab) + alerts; the
+ *     astronaut's profile facts are in a tooltip on the name there,
+ *   - top of the panel: compact alert banners (or the green all-clear bar),
+ *     on every tab except "Alerty", which already lists all alerts,
+ *   - the selected tab's panel.
  */
 export function HealthProfile({ astronautId }: { astronautId: string }) {
   const astronaut = useAstronaut(astronautId);
@@ -62,15 +61,16 @@ export function HealthProfile({ astronautId }: { astronautId: string }) {
     return out;
   }, [groups.data, catalog.data, overview.data]);
 
-  const loading = overview.isLoading || catalog.isLoading || groups.isLoading || alerts.isLoading;
-  const error = overview.error ?? catalog.error ?? groups.error ?? alerts.error;
+  const loading =
+    overview.isLoading || catalog.isLoading || groups.isLoading || alerts.isLoading || astronaut.isLoading;
+  const error = overview.error ?? catalog.error ?? groups.error ?? alerts.error ?? astronaut.error;
 
   return (
     <Stack gap="md">
       {groups.data && alerts.data && (
         <Sidebar>
           <ProfileSidebar
-            astronautName={astronaut.data?.fullName ?? '…'}
+            astronaut={astronaut.data}
             groups={groups.data}
             groupStatuses={groupStatuses}
             alerts={alerts.data}
@@ -83,7 +83,7 @@ export function HealthProfile({ astronautId }: { astronautId: string }) {
         </Sidebar>
       )}
 
-      {alerts.data && groups.data && (
+      {alerts.data && groups.data && tab !== ALERTS_TAB && (
         <AlertsBanner
           alerts={alerts.data}
           groups={groups.data}
@@ -91,30 +91,6 @@ export function HealthProfile({ astronautId }: { astronautId: string }) {
           onShowAll={() => setTab(ALERTS_TAB)}
         />
       )}
-
-      <QueryState isLoading={astronaut.isLoading} error={astronaut.error} minHeight={60}>
-        {astronaut.data && (
-          <Paper withBorder p="md">
-            <Group justify="space-between" align="flex-start">
-              <div>
-                <Title order={2}>{astronaut.data.fullName}</Title>
-                <Text c="dimmed">
-                  {astronaut.data.specialty} · {astronaut.data.agency} · {astronaut.data.stationName}
-                </Text>
-              </div>
-              <StatusBadge status={astronaut.data.overallStatus} size="lg" />
-            </Group>
-            <SimpleGrid cols={{ base: 2, sm: 3 }} mt="md">
-              <Stat label="Dzień misji" value={String(astronaut.data.missionDay)} />
-              <Stat label="Start misji" value={fmtDate(astronaut.data.missionStart)} />
-              <Stat
-                label="Ostatni pomiar"
-                value={astronaut.data.lastMeasurementAt ? fromNow(astronaut.data.lastMeasurementAt) : '—'}
-              />
-            </SimpleGrid>
-          </Paper>
-        )}
-      </QueryState>
 
       <QueryState isLoading={loading} error={error} minHeight={300}>
         {overview.data && catalog.data && groups.data && alerts.data && (
@@ -131,18 +107,5 @@ export function HealthProfile({ astronautId }: { astronautId: string }) {
         )}
       </QueryState>
     </Stack>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-        {label}
-      </Text>
-      <Text fw={600} size="lg">
-        {value}
-      </Text>
-    </div>
   );
 }

@@ -83,8 +83,10 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
 
 ### Alerty na górze panelu
 
-* Alerty to **duże banery na całą szerokość treści**, nad nagłówkiem astronauty i nad treścią
-  każdej zakładki. Są widoczne niezależnie od tego, która zakładka jest aktywna.
+* Alerty to **kompaktowe banery na całą szerokość treści**, nad treścią każdej zakładki
+  parametrów. Cała sekcja zajmuje mniej niż jedną trzecią wysokości ekranu, a każdy baner
+  pokazuje ważność (ikona + etykieta), treść i czas pomiaru.
+* Na zakładce **Alerty** banerów u góry nie ma, bo ta zakładka i tak pokazuje pełną listę.
 * Alerty dotyczą parametrów spoza normy i są **posortowane od krytycznych, przez ostrzeżenia,
   do wartych uwagi** (np. zaległy pomiar).
 * Każdy alert ma **ikonę ważności**: ośmiokąt dla krytycznego, trójkąt dla ostrzeżenia,
@@ -95,7 +97,7 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
   konkretny mięsień lub kość, a w tabeli badań podświetla wynik.
 * Gdy nie ma alertów krytycznych ani ostrzeżeń, wyświetla się **zielony pasek** „Wszystkie
   parametry w normie”.
-* Baner pokazuje **3 najważniejsze alerty**. Pod nimi jest wyraźny element „+N kolejnych
+* Baner pokazuje **2 najważniejsze alerty** (`BANNER_LIMIT` w `AlertsBanner.tsx`). Pod nimi jest wyraźny element „+N kolejnych
   alertów · zobacz wszystkie”, który otwiera zakładkę **Alerty** z pełną listą pogrupowaną
   według ważności, ze szczegółami każdego wyniku.
 * Jeden alert przypada na jeden parametr: wymienia najgorszą składową, a pozostałe streszcza
@@ -104,7 +106,10 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
 
 ### Zakładki w bocznym pasku
 
-Zakładki są w pasku po lewej stronie (`ProfileSidebar`). Przy każdej jest najgorszy status
+Zakładki są w pasku po lewej stronie (`ProfileSidebar`). Nazwisko astronauty u góry paska jest
+przyciskiem: najechanie, fokus z klawiatury lub stuknięcie pokazuje tooltip z danymi profilu
+(dawniej karta profilowa na każdej zakładce). Treść tooltipa jest wspólna z widokiem nadzoru
+(`AstronautProfileTooltip`). Przy każdej jest najgorszy status
 jej parametrów, a przy „Alertach” liczba alertów. Na telefonie pasek chowa się pod ikoną menu.
 Pasek jest widoczny tylko w profilu astronauty (także w karcie otwartej przez nadzór), nie na
 liście załogi.
@@ -145,7 +150,8 @@ Wybór jest zapisany w jednym miejscu: `MetricGroup::default_tab()` w
 ### Konta nadzorujące
 
 Karta „Załoga” pokazuje status każdego astronauty **na każdą zakładkę** (najgorszy parametr
-w grupie) oraz **liczniki alertów** według ważności. Zastępuje to 12 kolumn, po jednej na
+w grupie) oraz **liczniki alertów** według ważności. Najechanie lub fokus na nazwisku pokazuje
+tooltip z danymi profilu astronauty (rola, agencja, stacja, dzień misji, start, ostatni pomiar). Zastępuje to 12 kolumn, po jednej na
 parametr, które przy rosnącej liczbie parametrów stawałyby się nieczytelne. Profil astronauty
 otwiera się w zamykanej karcie, z tymi samymi alertami i zakładkami co w widoku astronauty.
 
@@ -358,5 +364,6 @@ w `groupWidgets` w rejestrze.
 
 ```bash
 cd backend && cargo test     # domena (alerty, punktacja, zakres podmiotu), przypadki użycia, JWT
+cd frontend && npm test      # Vitest + Testing Library: alerty, tooltip profilu, zakładki
 cd frontend && npm run build # typecheck + build produkcyjny
 ```

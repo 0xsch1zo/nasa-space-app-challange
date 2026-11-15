@@ -10,63 +10,78 @@ import { SeverityIcon } from './SeverityIcon';
  * One alert. The whole row is a link to the full report of the parameter
  * (its tab, scrolled to its chart / lab table / body map).
  *
- * `size="lg"` is the full-width banner at the top of a profile; `"md"` is
- * the compact row used in the alerts list.
+ * `variant="banner"` is the compact, tinted row shown at the top of a
+ * profile; `"row"` is the row used in the full alerts list. Both always show
+ * the severity (icon + label), the content and the time of the measurement.
  */
 export function AlertItem({
   alert,
   groupName,
   onOpen,
   detailed = false,
-  size = 'md',
+  variant = 'row',
 }: {
   alert: Alert;
   groupName: string;
   onOpen: (alert: Alert) => void;
   detailed?: boolean;
-  size?: 'md' | 'lg';
+  variant?: 'row' | 'banner';
 }) {
-  const lg = size === 'lg';
+  const banner = variant === 'banner';
   const color = severityColor[alert.severity];
+  const time = alert.recordedAt ? `pomiar ${fromNow(alert.recordedAt)}` : null;
   return (
     <Paper
       withBorder
       radius="md"
-      bg={lg ? `var(--mantine-color-${color}-light)` : undefined}
-      style={{ borderLeft: `6px solid var(--mantine-color-${color}-6)` }}
+      bg={banner ? `var(--mantine-color-${color}-light)` : undefined}
+      style={{ borderLeft: `${banner ? 4 : 6}px solid var(--mantine-color-${color}-6)` }}
+      data-testid={banner ? 'alert-banner' : 'alert-row'}
     >
       <UnstyledButton
         onClick={() => onOpen(alert)}
-        p={lg ? 'md' : 'sm'}
+        py={banner ? 6 : 'sm'}
+        px="sm"
         w="100%"
         aria-label={`${alert.title}: otwórz raport`}
       >
-        <Group wrap="nowrap" gap={lg ? 'md' : 'sm'}>
-          <SeverityIcon severity={alert.severity} size={lg ? 44 : 34} />
-          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-            <Group gap="xs" wrap="nowrap">
-              <Badge color={color} variant={alert.severity === 'notice' ? 'light' : 'filled'} size={lg ? 'md' : 'sm'}>
+        <Group wrap="nowrap" gap="sm">
+          <SeverityIcon severity={alert.severity} size={banner ? 26 : 34} />
+          <Stack gap={banner ? 0 : 2} style={{ flex: 1, minWidth: 0 }}>
+            <Group gap={6} wrap="nowrap">
+              <Badge
+                color={color}
+                variant={alert.severity === 'notice' ? 'light' : 'filled'}
+                size={banner ? 'xs' : 'sm'}
+                style={{ flexShrink: 0 }}
+              >
                 {severityLabel[alert.severity]}
               </Badge>
-              <Text fw={800} size={lg ? 'lg' : 'sm'} lineClamp={1}>
+              <Text fw={banner ? 700 : 800} size="sm" truncate>
                 {alert.title}
               </Text>
             </Group>
-            <Text size={lg ? 'md' : 'sm'} c={lg ? undefined : 'dimmed'}>
+            <Text size={banner ? 'xs' : 'sm'} c={banner ? undefined : 'dimmed'} lineClamp={banner ? 2 : undefined}>
               {alert.message}
             </Text>
-          </Stack>
-          <Stack gap={2} align="flex-end" visibleFrom="sm" style={{ flexShrink: 0 }}>
-            <Text size="sm" fw={600} c={`${color}.5`}>
-              Zobacz raport: {groupName}
-            </Text>
-            {alert.recordedAt && (
-              <Text size="xs" c="dimmed">
-                pomiar {fromNow(alert.recordedAt)}
+            {/* On narrow screens the side column is hidden; keep the time visible. */}
+            {time && (
+              <Text size="xs" c="dimmed" hiddenFrom="sm">
+                {time}
               </Text>
             )}
           </Stack>
-          <IconChevronRight size={lg ? 22 : 18} style={{ flexShrink: 0 }} />
+          <Stack gap={0} align="flex-end" visibleFrom="sm" style={{ flexShrink: 0 }}>
+            <Text size="xs" fw={600} c={`${color}.5`}>
+              {banner ? groupName : `Zobacz raport: ${groupName}`}
+            </Text>
+            {time && (
+              <Text size="xs" c="dimmed">
+                {time}
+              </Text>
+            )}
+          </Stack>
+          <IconChevronRight size={banner ? 16 : 18} style={{ flexShrink: 0 }} />
         </Group>
       </UnstyledButton>
       {detailed && alert.findings.length > 0 && (
