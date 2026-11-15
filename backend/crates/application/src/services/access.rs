@@ -27,11 +27,12 @@ impl Authorizer {
         if principal.role == Role::Astronaut && principal.astronaut_id != Some(id) {
             return Err(AppError::Forbidden);
         }
-        let astronaut = self
-            .crew
-            .find_astronaut(id)
-            .await?
-            .ok_or(AppError::NotFound("astronaut"))?;
+        let astronaut = match self.crew.find_astronaut(id).await? {
+            Some(a) => a,
+            // An astronaut's own profile is gone: the session is stale.
+            None if principal.astronaut_id == Some(id) => return Err(AppError::Unauthenticated),
+            None => return Err(AppError::NotFound("astronaut")),
+        };
         if !AccessPolicy::can_view(principal, &astronaut) {
             return Err(AppError::Forbidden);
         }

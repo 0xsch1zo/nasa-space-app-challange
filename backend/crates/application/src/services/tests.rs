@@ -355,3 +355,26 @@ async fn wellbeing_note_follows_access_policy() {
         Err(AppError::Forbidden)
     ));
 }
+
+#[tokio::test]
+async fn stale_session_is_unauthenticated_not_not_found() {
+    // Token issued before the data was reset: its station / astronaut no longer exist.
+    let f = fixture();
+    let (health, crew, _) = services(&f);
+    assert!(matches!(
+        crew.list_crew(&supervisor(StationId::new())).await,
+        Err(AppError::Unauthenticated)
+    ));
+    let gone = AstronautId::new();
+    assert!(matches!(
+        health.overview(&astronaut(f.iss, gone), gone).await,
+        Err(AppError::Unauthenticated)
+    ));
+    // A supervisor asking for an unknown astronaut is still a plain 404.
+    assert!(matches!(
+        health
+            .overview(&supervisor(f.iss), AstronautId::new())
+            .await,
+        Err(AppError::NotFound(_))
+    ));
+}
