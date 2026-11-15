@@ -1,7 +1,8 @@
-import { Badge, Group, Paper, SimpleGrid, Table, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { Badge, Group, Paper, SimpleGrid, Table, Text, Tooltip } from '@mantine/core';
 import { IconChevronRight } from '@tabler/icons-react';
 import type { CrewMember, HealthStatus, MetricDefinition, MetricGroup } from '../api/types';
 import { fromNow } from '../lib/dates';
+import { AstronautProfileTooltip } from './AstronautProfileTooltip';
 import { severityColor, statusColor, statusLabel, statusRank, worstStatus } from '../lib/status';
 import { StatusBadge } from './StatusBadge';
 
@@ -57,12 +58,12 @@ export function CrewTable({
               {sorted.map((c) => (
                 <Table.Tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(c)}>
                   <Table.Td>
-                    <UnstyledButton onClick={() => onOpen(c)}>
+                    <AstronautProfileTooltip member={c} onClick={() => onOpen(c)}>
                       <Text fw={600}>{c.fullName}</Text>
                       <Text size="xs" c="dimmed">
                         {c.specialty} · {c.agency}
                       </Text>
-                    </UnstyledButton>
+                    </AstronautProfileTooltip>
                   </Table.Td>
                   <Table.Td>{c.missionDay}</Table.Td>
                   {groups.map((g) => (

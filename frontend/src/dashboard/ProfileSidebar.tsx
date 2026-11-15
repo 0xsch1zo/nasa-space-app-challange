@@ -8,7 +8,8 @@ import {
   type IconProps,
 } from '@tabler/icons-react';
 import type { ComponentType } from 'react';
-import type { Alert, HealthStatus, MetricGroup } from '../api/types';
+import type { Alert, CrewMember, HealthStatus, MetricGroup } from '../api/types';
+import { AstronautProfileTooltip } from '../components/AstronautProfileTooltip';
 import { StatusBadge } from '../components/StatusBadge';
 import { ALERTS_TAB } from './ProfileTabs';
 
@@ -21,17 +22,18 @@ const GROUP_ICONS: Record<string, ComponentType<IconProps>> = {
 
 /**
  * Side navigation of a health profile: one entry per parameter group
- * (tab) with the group's worst status, plus the alerts list.
+ * (tab) with the group's worst status, plus the alerts list. The
+ * astronaut's name at the top reveals the profile details in a tooltip.
  */
 export function ProfileSidebar({
-  astronautName,
+  astronaut,
   groups,
   groupStatuses,
   alerts,
   active,
   onSelect,
 }: {
-  astronautName: string;
+  astronaut: CrewMember | undefined;
   groups: MetricGroup[];
   groupStatuses: Record<string, HealthStatus>;
   alerts: Alert[];
@@ -44,9 +46,17 @@ export function ProfileSidebar({
       <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="sm" pt={4}>
         Profil zdrowotny
       </Text>
-      <Text fw={700} px="sm" pb="xs" lineClamp={1}>
-        {astronautName}
-      </Text>
+      <div style={{ paddingInline: 'var(--mantine-spacing-sm)', paddingBottom: 'var(--mantine-spacing-xs)' }}>
+        {astronaut ? (
+          <AstronautProfileTooltip member={astronaut}>
+            <Text fw={700} lineClamp={1} td="underline" style={{ textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}>
+              {astronaut.fullName}
+            </Text>
+          </AstronautProfileTooltip>
+        ) : (
+          <Text fw={700}>…</Text>
+        )}
+      </div>
       {groups.map((g) => {
         const Icon = GROUP_ICONS[g.code] ?? IconChartLine;
         const status = groupStatuses[g.code] ?? 'unknown';
