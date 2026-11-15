@@ -19,7 +19,7 @@ impl MetricCatalog {
             vec![
                 MetricGroup::new(
                     "environment",
-                    "Środowisko",
+                    "Środowisko zewnętrzne",
                     "Warunki na pokładzie: powietrze, powierzchnie, promieniowanie, grawitacja.",
                 ),
                 // Default tab: the astronaut's own vital signs are the core of

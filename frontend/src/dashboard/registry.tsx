@@ -43,8 +43,11 @@ const widgetsByChart: Record<ChartKind, MetricWidgetComponent> = {
   body: bodyMetricWidget(BODY_PALETTES.muscle),
 };
 
-/** Composite score reports use the full width; everything else half. */
-const spanFor = (hasScore: boolean): GridSpan => (hasScore ? { base: 12 } : { base: 12, lg: 6 });
+/** Wide reports (scores, lab tables, many-series metrics) take the full width. */
+const spanFor = (metric: MetricDefinition, hasScore: boolean): GridSpan =>
+  hasScore || metric.chart === 'table' || metric.components.length >= 4
+    ? { base: 12 }
+    : { base: 12, lg: 6 };
 
 export function metricWidget(metric: MetricDefinition): WidgetModule {
   const hasScore = metric.components.some((c) => c.derived);
@@ -52,7 +55,7 @@ export function metricWidget(metric: MetricDefinition): WidgetModule {
     metricWidgetOverrides[metric.code] ?? (hasScore ? ScoreWidget : widgetsByChart[metric.chart]);
   return {
     id: metric.code,
-    span: spanFor(hasScore),
+    span: spanFor(metric, hasScore),
     usesRange: metric.chart !== 'table',
     Component: ({ ctx }) => (
       <Widget

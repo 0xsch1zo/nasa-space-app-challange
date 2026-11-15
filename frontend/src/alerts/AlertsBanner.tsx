@@ -6,8 +6,9 @@ import { AlertItem } from './AlertItem';
 export const BANNER_LIMIT = 3;
 
 /**
- * Top of the astronaut view: the most important alerts (already sorted by
- * the backend), a green "all good" bar when nothing is critical or a warning,
+ * Top of the astronaut panel, above the content of whichever tab is open:
+ * full-width banners with the most important alerts (already sorted by the
+ * backend), a green "all good" bar when nothing is critical or a warning,
  * and a link to the full list when there are more than three.
  */
 export function AlertsBanner({
@@ -27,41 +28,43 @@ export function AlertsBanner({
   const groupName = (code: string) => groups.find((g) => g.code === code)?.name ?? code;
 
   return (
-    <Stack gap="xs" aria-label="Alerty zdrowotne">
+    <Stack gap="xs" aria-label="Alerty zdrowotne" component="section">
       {!urgent && (
         <Paper
-          p="sm"
+          p="md"
           radius="md"
           bg="var(--mantine-color-teal-light)"
           style={{ border: '1px solid var(--mantine-color-teal-outline)' }}
         >
           <Group gap="sm" wrap="nowrap">
-            <ThemeIcon color="teal" radius="xl" size={34}>
-              <IconCircleCheck size={22} />
+            <ThemeIcon color="teal" radius="xl" size={44}>
+              <IconCircleCheck size={28} />
             </ThemeIcon>
             <div>
-              <Text fw={700} c="teal">
+              <Text fw={800} size="lg" c="teal">
                 Wszystkie parametry w normie
               </Text>
               <Text size="sm" c="dimmed">
                 Brak alertów krytycznych i ostrzeżeń.
+                {alerts.length > 0 &&
+                  ` ${alerts.length} ${alerts.length === 1 ? 'uwaga organizacyjna' : 'uwagi organizacyjne'} poniżej.`}
               </Text>
             </div>
           </Group>
         </Paper>
       )}
       {shown.map((a) => (
-        <AlertItem key={a.id} alert={a} groupName={groupName(a.group)} onOpen={onOpenAlert} />
+        <AlertItem key={a.id} alert={a} groupName={groupName(a.group)} onOpen={onOpenAlert} size="lg" />
       ))}
       {hidden > 0 && (
         <UnstyledButton onClick={onShowAll} aria-label="Pokaż wszystkie alerty">
           <Paper
-            p="xs"
+            p="sm"
             radius="md"
-            style={{ border: '1px dashed var(--mantine-color-default-border)' }}
+            style={{ border: '2px dashed var(--mantine-color-default-border)' }}
           >
             <Group justify="center" gap={6}>
-              <Text size="sm" fw={600}>
+              <Text fw={700}>
                 + {hidden} {hidden === 1 ? 'kolejny alert' : hidden < 5 ? 'kolejne alerty' : 'kolejnych alertów'}
               </Text>
               <Text size="sm" c="dimmed">
