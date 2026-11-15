@@ -80,6 +80,17 @@ impl Bounds {
     pub fn contains(&self, v: f64) -> bool {
         self.min.is_none_or(|m| v >= m) && self.max.is_none_or(|m| v <= m)
     }
+
+    /// Human readable form, e.g. `60–84 mmHg`, `≥ -5 %`.
+    pub fn describe(&self, unit: &str) -> String {
+        let n = |v: f64| format!("{v}");
+        match (self.min, self.max) {
+            (Some(a), Some(b)) => format!("{}–{} {unit}", n(a), n(b)),
+            (Some(a), None) => format!("≥ {} {unit}", n(a)),
+            (None, Some(b)) => format!("≤ {} {unit}", n(b)),
+            (None, None) => "dowolna".to_owned(),
+        }
+    }
 }
 
 /// Clinical reference: inside `normal` → Normal, inside `warning` → Warning,
@@ -109,6 +120,10 @@ pub enum ChartKind {
     Line,
     Area,
     Bar,
+    /// Panel of results (e.g. blood/urine lab tests) shown as a table per exam.
+    Table,
+    /// Values projected on the body figure (one component = one body part).
+    Body,
 }
 
 impl ChartKind {
@@ -117,7 +132,63 @@ impl ChartKind {
             ChartKind::Line => "line",
             ChartKind::Area => "area",
             ChartKind::Bar => "bar",
+            ChartKind::Table => "table",
+            ChartKind::Body => "body",
         }
+    }
+}
+
+/// Whose history a metric describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MetricScope {
+    /// Physiology of one astronaut (blood pressure, sleep, ...).
+    Astronaut,
+    /// Environment of a whole station (radiation, air quality, ...). Shown
+    /// in the profile of every astronaut on that station.
+    Station,
+}
+
+impl MetricScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MetricScope::Astronaut => "astronaut",
+            MetricScope::Station => "station",
+        }
+    }
+}
+
+/// Which components of a metric may raise out-of-range alerts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlertPolicy {
+    AllComponents,
+    /// Only the listed components (e.g. only the overall sleep score, so that
+    /// six sleep sub-parameters do not flood the astronaut with alerts).
+    Only(Vec<String>),
+}
+
+impl AlertPolicy {
+    pub fn covers(&self, component: &str) -> bool {
+        match self {
+            AlertPolicy::AllComponents => true,
+            AlertPolicy::Only(keys) => keys.iter().any(|k| k == component),
+        }
+    }
+}
+
+/// Contribution of a component to a derived score: 0 points at `zero_at`,
+/// `max_points` at `full_at`, linear in between (works in both directions,
+/// e.g. fewer night awakenings = more points).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScoreRule {
+    pub max_points: f64,
+    pub zero_at: f64,
+    pub full_at: f64,
+}
+
+impl ScoreRule {
+    pub fn points(&self, value: f64) -> f64 {
+        let t = (value - self.zero_at) / (self.full_at - self.zero_at);
+        t.clamp(0.0, 1.0) * self.max_points
     }
 }
 
@@ -138,13 +209,18 @@ pub struct ComponentDefinition {
     pub key: String,
     pub label: String,
     pub unit: String,
-    /// Where on the body this value is shown.
-    pub body_region: BodyRegion,
+    /// Where on the body this value is shown (`None` for e.g. lab analytes
+    /// or environment readings).
+    pub body_region: Option<BodyRegion>,
     /// Physically plausible range; values outside are rejected as device errors.
     pub plausible: Bounds,
     pub reference: ReferenceRange,
     pub decimals: u8,
     pub demo: DemoSignal,
+    /// Contribution to the metric's derived score, if it has one.
+    pub score: Option<ScoreRule>,
+    /// Computed by the domain from other components; never sent by devices.
+    pub derived: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +233,10 @@ pub struct MetricDefinition {
     /// seed and to flag stale data in the UI.
     pub sampling_interval_hours: u32,
     pub components: Vec<ComponentDefinition>,
+    /// Dashboard tab (see [`super::MetricGroup`]) this metric is shown in.
+    pub group: String,
+    pub scope: MetricScope,
+    pub alert_policy: AlertPolicy,
 }
 
 impl MetricDefinition {
@@ -180,6 +260,9 @@ impl MetricDefinition {
                 chart: ChartKind::Line,
                 sampling_interval_hours: 24,
                 components: Vec::new(),
+                group: String::new(),
+                scope: MetricScope::Astronaut,
+                alert_policy: AlertPolicy::AllComponents,
             },
         }
     }
@@ -202,10 +285,68 @@ impl MetricBuilder {
         self.def.components.push(c);
         self
     }
+    pub fn group(mut self, code: &str) -> Self {
+        self.def.group = code.to_owned();
+        self
+    }
+    pub fn scope(mut self, scope: MetricScope) -> Self {
+        self.def.scope = scope;
+        self
+    }
+    pub fn alert_policy(mut self, policy: AlertPolicy) -> Self {
+        self.def.alert_policy = policy;
+        self
+    }
+    /// Adds a derived component holding the sum of all component scores.
+    /// Call after the scored components.
+    pub fn derived_score(
+        mut self,
+        key: &str,
+        label: &str,
+        normal: Bounds,
+        warning: Bounds,
+    ) -> Self {
+        let max: f64 = self
+            .def
+            .components
+            .iter()
+            .filter_map(|c| c.score)
+            .map(|s| s.max_points)
+            .sum();
+        assert!(
+            max > 0.0,
+            "metric `{}`: no scored components",
+            self.def.code
+        );
+        let mut c = ComponentDefinition::new(
+            key,
+            label,
+            "pkt",
+            None,
+            Bounds::between(0.0, max),
+            normal,
+            warning,
+            0,
+            DemoSignal {
+                baseline: 0.0,
+                spread: 0.0,
+                drift_per_day: 0.0,
+                noise: 0.0,
+            },
+        );
+        c.derived = true;
+        self.def.components.push(c);
+        self
+    }
     pub fn build(self) -> MetricDefinition {
         assert!(
             !self.def.components.is_empty(),
             "metric `{}` needs at least one component",
+            self.def.code
+        );
+        assert!(
+            !self.def.group.is_empty(),
+            "metric `{}` needs a group",
             self.def.code
         );
         self.def
@@ -218,7 +359,7 @@ impl ComponentDefinition {
         key: &str,
         label: &str,
         unit: &str,
-        body_region: BodyRegion,
+        body_region: impl Into<Option<BodyRegion>>,
         plausible: Bounds,
         normal: Bounds,
         warning: Bounds,
@@ -229,11 +370,27 @@ impl ComponentDefinition {
             key: key.to_owned(),
             label: label.to_owned(),
             unit: unit.to_owned(),
-            body_region,
+            body_region: body_region.into(),
             plausible,
             reference: ReferenceRange { normal, warning },
             decimals,
             demo,
+            score: None,
+            derived: false,
         }
+    }
+
+    pub fn scored(mut self, rule: ScoreRule) -> Self {
+        self.score = Some(rule);
+        self
+    }
+
+    /// The maximum score a metric's derived component can reach.
+    pub fn score_max(components: &[ComponentDefinition]) -> f64 {
+        components
+            .iter()
+            .filter_map(|c| c.score)
+            .map(|s| s.max_points)
+            .sum()
     }
 }

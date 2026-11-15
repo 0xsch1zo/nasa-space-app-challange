@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CloseButton, Group, Tabs, Text } from '@mantine/core';
 import { IconUser, IconUsersGroup } from '@tabler/icons-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useCatalog, useCrew } from '../api/hooks';
+import { useCatalog, useCrew, useGroups } from '../api/hooks';
 import { CrewTable } from '../components/CrewTable';
 import { HealthProfile } from '../components/HealthProfile';
 import { QueryState } from '../components/QueryState';
@@ -18,6 +18,7 @@ export function SupervisorPage() {
   const navigate = useNavigate();
   const crew = useCrew();
   const catalog = useCatalog();
+  const groups = useGroups();
   const [openIds, setOpenIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -61,9 +62,17 @@ export function SupervisorPage() {
       </Tabs.List>
 
       <Tabs.Panel value={CREW_TAB}>
-        <QueryState isLoading={crew.isLoading || catalog.isLoading} error={crew.error ?? catalog.error}>
-          {crew.data && catalog.data && (
-            <CrewTable crew={crew.data} catalog={catalog.data} onOpen={(c) => navigate(`/crew/${c.id}`)} />
+        <QueryState
+          isLoading={crew.isLoading || catalog.isLoading || groups.isLoading}
+          error={crew.error ?? catalog.error ?? groups.error}
+        >
+          {crew.data && catalog.data && groups.data && (
+            <CrewTable
+              crew={crew.data}
+              catalog={catalog.data}
+              groups={groups.data}
+              onOpen={(c) => navigate(`/crew/${c.id}`)}
+            />
           )}
         </QueryState>
       </Tabs.Panel>

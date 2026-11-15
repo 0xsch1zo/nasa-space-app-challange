@@ -5,8 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
-use domain::crew::{Astronaut, AstronautId, Role, Station, StationId, UserId};
-use domain::metrics::{MetricCatalog, MetricCode, Reading, RecordedReading};
+use domain::alerts::{AlertEngine, AlertSeverity};
+use domain::crew::{Astronaut, AstronautId, Role, Station, StationId, Subject, UserId};
+use domain::metrics::{MetricCatalog, MetricCode, MetricScope, Reading, RecordedReading};
+use domain::wellbeing::WellbeingNote;
 
 use super::*;
 use crate::error::AppError;
@@ -41,21 +43,21 @@ impl CrewRepository for InMemory {
 
 #[async_trait]
 impl MeasurementRepository for InMemory {
-    async fn ensure_storage(&self, _: &[MetricCode]) -> InfraResult<()> {
+    async fn ensure_storage(&self, _: &[(MetricCode, MetricScope)]) -> InfraResult<()> {
         Ok(())
     }
     async fn append(&self, r: &[RecordedReading]) -> InfraResult<u64> {
         self.readings.lock().unwrap().extend_from_slice(r);
         Ok(r.len() as u64)
     }
-    async fn latest(&self, astronaut: AstronautId) -> InfraResult<Vec<(MetricCode, Reading)>> {
+    async fn latest(&self, subject: Subject) -> InfraResult<Vec<(MetricCode, Reading)>> {
         let mut out: BTreeMap<MetricCode, Reading> = BTreeMap::new();
         for r in self
             .readings
             .lock()
             .unwrap()
             .iter()
-            .filter(|r| r.astronaut_id() == astronaut)
+            .filter(|r| r.subject() == subject)
         {
             let e = out
                 .entry(r.metric().clone())
@@ -68,13 +70,19 @@ impl MeasurementRepository for InMemory {
     }
     async fn latest_for_station(
         &self,
-        _: StationId,
+        station: StationId,
     ) -> InfraResult<Vec<(AstronautId, MetricCode, Reading)>> {
-        Ok(vec![])
+        let mut out = Vec::new();
+        for a in self.astronauts.iter().filter(|a| a.station_id == station) {
+            for (code, r) in self.latest(Subject::Astronaut(a.id)).await? {
+                out.push((a.id, code, r));
+            }
+        }
+        Ok(out)
     }
     async fn series(
         &self,
-        astronaut: AstronautId,
+        subject: Subject,
         metric: &MetricCode,
         _: TimeRange,
         _: Option<Bucket>,
@@ -84,9 +92,20 @@ impl MeasurementRepository for InMemory {
             .lock()
             .unwrap()
             .iter()
-            .filter(|r| r.astronaut_id() == astronaut && r.metric() == metric)
+            .filter(|r| r.subject() == subject && r.metric() == metric)
             .map(|r| r.reading().clone())
             .collect())
+    }
+}
+
+#[async_trait]
+impl WellbeingRepository for InMemory {
+    async fn latest_note(&self, astronaut: AstronautId) -> InfraResult<Option<WellbeingNote>> {
+        Ok(Some(WellbeingNote {
+            astronaut_id: astronaut,
+            written_at: Utc::now(),
+            body: "Spokojny tydzień.".into(),
+        }))
     }
 }
 
@@ -158,11 +177,31 @@ fn supervisor(station: StationId) -> Principal {
 
 fn services(f: &Fixture) -> (HealthService, CrewService, IngestionService) {
     let catalog = Arc::new(MetricCatalog::builtin());
+    let engine = Arc::new(AlertEngine::standard());
     (
         HealthService::new(f.repo.clone(), f.repo.clone(), catalog.clone()),
-        CrewService::new(f.repo.clone(), f.repo.clone(), catalog.clone()),
+        CrewService::new(f.repo.clone(), f.repo.clone(), catalog.clone(), engine),
         IngestionService::new(f.repo.clone(), f.repo.clone(), catalog),
     )
+}
+
+fn alert_service(f: &Fixture) -> AlertService {
+    AlertService::new(
+        f.repo.clone(),
+        f.repo.clone(),
+        Arc::new(MetricCatalog::builtin()),
+        Arc::new(AlertEngine::standard()),
+    )
+}
+
+fn measurement(subject: Subject, metric: &str, values: &[(&str, f64)]) -> DeviceMeasurement {
+    DeviceMeasurement {
+        subject,
+        metric: metric.into(),
+        recorded_at: Utc::now(),
+        values: values.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        source: "test".into(),
+    }
 }
 
 #[tokio::test]
@@ -211,12 +250,8 @@ async fn supervisor_sees_whole_station_but_not_other_stations() {
 async fn ingestion_validates_against_catalog() {
     let f = fixture();
     let (health, _, ingest) = services(&f);
-    let m = |metric: &str, values: &[(&str, f64)]| DeviceMeasurement {
-        astronaut_id: f.alice,
-        metric: metric.into(),
-        recorded_at: Utc::now(),
-        values: values.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-        source: "test".into(),
+    let m = |metric: &str, values: &[(&str, f64)]| {
+        measurement(Subject::Astronaut(f.alice), metric, values)
     };
     let report = ingest
         .ingest(vec![
@@ -242,4 +277,81 @@ async fn ingestion_validates_against_catalog() {
         .find(|m| m.metric.as_str() == "blood_pressure")
         .unwrap();
     assert!(bp.latest.is_some());
+}
+
+#[tokio::test]
+async fn alerts_include_station_environment_and_respect_access() {
+    let f = fixture();
+    let (_, crew, ingest) = services(&f);
+    let alerts = alert_service(&f);
+    let report = ingest
+        .ingest(vec![
+            measurement(
+                Subject::Astronaut(f.alice),
+                "body_temperature",
+                &[("core", 38.6)],
+            ),
+            measurement(Subject::Station(f.iss), "radiation", &[("dose_rate", 1.4)]),
+            // environment metric sent for an astronaut: rejected by the domain
+            measurement(
+                Subject::Astronaut(f.alice),
+                "radiation",
+                &[("dose_rate", 1.4)],
+            ),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(report.accepted, 2);
+    assert_eq!(report.rejected.len(), 1);
+
+    let mine = alerts
+        .alerts(&astronaut(f.iss, f.alice), f.alice)
+        .await
+        .unwrap();
+    let kinds: Vec<_> = mine
+        .iter()
+        .map(|a| (a.metric.as_str(), a.severity))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("body_temperature", AlertSeverity::Critical),
+            ("radiation", AlertSeverity::Warning)
+        ]
+    );
+
+    // Bob is on the same station: he gets the radiation alert only.
+    let bob = alerts.alerts(&supervisor(f.iss), f.bob).await.unwrap();
+    assert_eq!(bob.len(), 1);
+    // Other astronauts and other stations stay inaccessible.
+    assert!(matches!(
+        alerts.alerts(&astronaut(f.iss, f.alice), f.bob).await,
+        Err(AppError::Forbidden)
+    ));
+    assert!(matches!(
+        alerts.alerts(&supervisor(f.iss), f.gateway_astro).await,
+        Err(AppError::Forbidden)
+    ));
+
+    let list = crew.list_crew(&supervisor(f.iss)).await.unwrap();
+    let alice = list.iter().find(|c| c.astronaut.id == f.alice).unwrap();
+    assert_eq!(
+        (alice.alert_counts.critical, alice.alert_counts.warning),
+        (1, 1)
+    );
+}
+
+#[tokio::test]
+async fn wellbeing_note_follows_access_policy() {
+    let f = fixture();
+    let svc = WellbeingService::new(f.repo.clone(), f.repo.clone());
+    assert!(svc
+        .latest_note(&astronaut(f.iss, f.alice), f.alice)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(matches!(
+        svc.latest_note(&astronaut(f.iss, f.alice), f.bob).await,
+        Err(AppError::Forbidden)
+    ));
 }

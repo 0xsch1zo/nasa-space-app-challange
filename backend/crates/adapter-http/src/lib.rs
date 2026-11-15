@@ -9,7 +9,9 @@ mod handlers;
 
 use std::sync::Arc;
 
-use application::ports::inbound::{AuthUseCase, CrewUseCase, HealthUseCase};
+use application::ports::inbound::{
+    AlertUseCase, AuthUseCase, CrewUseCase, HealthUseCase, WellbeingUseCase,
+};
 use axum::http::{header, HeaderValue, Method};
 use axum::routing::{get, post};
 use axum::Router;
@@ -21,6 +23,8 @@ pub struct AppState {
     pub auth: Arc<dyn AuthUseCase>,
     pub crew: Arc<dyn CrewUseCase>,
     pub health: Arc<dyn HealthUseCase>,
+    pub alerts: Arc<dyn AlertUseCase>,
+    pub wellbeing: Arc<dyn WellbeingUseCase>,
 }
 
 pub fn router(state: AppState, cors_origins: &[String]) -> Router {
@@ -29,9 +33,15 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .route("/auth/login", post(handlers::login))
         .route("/me", get(handlers::me))
         .route("/metrics", get(handlers::metric_catalog))
+        .route("/metric-groups", get(handlers::metric_groups))
         .route("/astronauts", get(handlers::list_crew))
         .route("/astronauts/{id}", get(handlers::get_astronaut))
         .route("/astronauts/{id}/overview", get(handlers::overview))
+        .route("/astronauts/{id}/alerts", get(handlers::alerts))
+        .route(
+            "/astronauts/{id}/wellbeing-note",
+            get(handlers::wellbeing_note),
+        )
         .route(
             "/astronauts/{id}/metrics/{code}/series",
             get(handlers::series),

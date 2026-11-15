@@ -1,12 +1,42 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './client';
-import type { CrewMember, MetricDefinition, Overview, Series } from './types';
+import type {
+  Alert,
+  CrewMember,
+  MetricDefinition,
+  MetricGroup,
+  Overview,
+  Series,
+  WellbeingNote,
+} from './types';
 
 export function useCatalog() {
   return useQuery({
     queryKey: ['catalog'],
     queryFn: () => api<MetricDefinition[]>('/metrics'),
     staleTime: Infinity,
+  });
+}
+
+export function useGroups() {
+  return useQuery({
+    queryKey: ['groups'],
+    queryFn: () => api<MetricGroup[]>('/metric-groups'),
+    staleTime: Infinity,
+  });
+}
+
+export function useAlerts(id: string) {
+  return useQuery({
+    queryKey: ['alerts', id],
+    queryFn: () => api<Alert[]>(`/astronauts/${id}/alerts`),
+  });
+}
+
+export function useWellbeingNote(id: string) {
+  return useQuery({
+    queryKey: ['wellbeing-note', id],
+    queryFn: () => api<WellbeingNote | null>(`/astronauts/${id}/wellbeing-note`),
   });
 }
 

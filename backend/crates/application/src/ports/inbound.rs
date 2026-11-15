@@ -5,9 +5,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use domain::alerts::{Alert, AlertSeverity};
 use domain::body::RegionSummary;
-use domain::crew::{Astronaut, AstronautId, Station};
+use domain::crew::{Astronaut, AstronautId, Station, Subject};
 use domain::metrics::{Assessment, HealthStatus, MetricCatalog, MetricCode, Reading};
+use domain::wellbeing::WellbeingNote;
 
 use super::outbound::{Bucket, IssuedToken, TimeRange};
 use crate::error::AppResult;
@@ -36,6 +38,25 @@ pub struct CrewMemberSummary {
     pub overall_status: HealthStatus,
     pub last_measurement_at: Option<DateTime<Utc>>,
     pub metric_statuses: Vec<(MetricCode, HealthStatus)>,
+    pub alert_counts: AlertCounts,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AlertCounts {
+    pub critical: usize,
+    pub warning: usize,
+    pub notice: usize,
+}
+
+impl AlertCounts {
+    pub fn of(alerts: &[Alert]) -> Self {
+        let n = |s| alerts.iter().filter(|a| a.severity == s).count();
+        Self {
+            critical: n(AlertSeverity::Critical),
+            warning: n(AlertSeverity::Warning),
+            notice: n(AlertSeverity::Notice),
+        }
+    }
 }
 
 #[async_trait]
@@ -75,10 +96,18 @@ pub struct SeriesQuery {
     pub bucket: Option<Bucket>,
 }
 
+/// A historical reading with its status per component, so clients never
+/// re-implement classification (e.g. statuses of previous lab exams).
+#[derive(Debug, Clone)]
+pub struct AssessedReading {
+    pub reading: Reading,
+    pub assessment: Assessment,
+}
+
 #[derive(Debug, Clone)]
 pub struct TimeSeries {
     pub metric: MetricCode,
-    pub points: Vec<Reading>,
+    pub points: Vec<AssessedReading>,
 }
 
 #[async_trait]
@@ -88,12 +117,33 @@ pub trait HealthUseCase: Send + Sync {
     async fn series(&self, principal: &Principal, query: SeriesQuery) -> AppResult<TimeSeries>;
 }
 
+// ---------- alerts ----------
+
+#[async_trait]
+pub trait AlertUseCase: Send + Sync {
+    /// Alerts for one astronaut (incl. their station's environment), most
+    /// urgent first.
+    async fn alerts(&self, principal: &Principal, id: AstronautId) -> AppResult<Vec<Alert>>;
+}
+
+// ---------- wellbeing ----------
+
+#[async_trait]
+pub trait WellbeingUseCase: Send + Sync {
+    async fn latest_note(
+        &self,
+        principal: &Principal,
+        id: AstronautId,
+    ) -> AppResult<Option<WellbeingNote>>;
+}
+
 // ---------- device ingestion ----------
 
 /// A raw measurement as delivered by a medical device (or simulator/seeder).
 #[derive(Debug, Clone)]
 pub struct DeviceMeasurement {
-    pub astronaut_id: AstronautId,
+    /// Astronaut for physiological metrics, station for environment metrics.
+    pub subject: Subject,
     pub metric: String,
     pub recorded_at: DateTime<Utc>,
     pub values: BTreeMap<String, f64>,

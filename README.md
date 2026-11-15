@@ -1,19 +1,22 @@
 # AstroHealth — dashboard zdrowia załogi stacji kosmicznej
 
-Full-stackowy dashboard, który agreguje parametry zdrowotne astronautów (ciśnienie krwi,
-gęstość kości, zanik mięśni, tętno spoczynkowe) i pokazuje je na wykresach czasowych oraz
-na mapie ciała.
+Full-stackowy dashboard, który przystępnie prezentuje parametry życiowe astronautów bez
+przeładowywania ich informacjami. Na górze profilu wyświetlają się alerty. Parametry są
+pogrupowane w zakładki: **Środowisko**, **Parametry fizjologiczne** i **Samopoczucie**.
 
 * **Backend:** Rust, architektura heksagonalna (porty i adaptery), workspace z osobnymi crate'ami.
 * **Frontend:** React + TypeScript, Mantine.
 
 **Główny cel architektoniczny to modularność.** Parametr zdrowotny jest *daną* (deklaratywną
-definicją), a nie kodem rozrzuconym po warstwach. Dodanie nowego parametru to jeden plik
-i jedna linia. Szczegóły w sekcji [Jak dodać nowy parametr](#jak-dodać-nowy-parametr-zdrowotny).
+definicją), a nie kodem rozrzuconym po warstwach. Z definicji wynikają: walidacja, statusy,
+alerty, partycja w bazie, zakładka i widget. Szczegóły w sekcjach
+[Jak dodać nowy parametr](#jak-dodać-nowy-parametr-zdrowotny) i [Jak dodać zakładkę](#jak-dodać-zakładkę).
 
-| Profil zdrowotny (widok nadzoru, karta astronauty) | Lista załogi (konto nadzorujące) |
+| Profil astronauty: alerty i zakładka domyślna | Zakładka „Samopoczucie” |
 |---|---|
-| ![profil](docs/profile.png) | ![załoga](docs/crew.png) |
+| ![profil](docs/profile.png) | ![samopoczucie](docs/wellbeing.png) |
+
+![załoga](docs/crew.png)
 
 ---
 
@@ -29,44 +32,110 @@ docker compose up --build
 | backend | http://localhost:8080/api | REST API (axum) |
 | db | localhost:5432 | PostgreSQL 16 (`astro` / `astro`, baza `astro_health`) |
 
-Usługa `seed` uruchamia się raz przed backendem. Wykonuje migracje, tworzy partycje
-parametrów i ładuje dane demonstracyjne (kilka miesięcy historii). Jeśli dane już istnieją,
-pomija ten krok. Dane są generowane względem bieżącej daty. Żeby je odświeżyć:
-
-```bash
-docker compose run --rm seed seed --reset
-```
+Usługa `seed` uruchamia się przed backendem. Wykonuje migracje, tworzy partycje parametrów
+i generuje dane demonstracyjne. W compose działa z flagą `--reset`, więc **przy każdym starcie
+dane demo są generowane od nowa** i kończą się na „teraz”. Inaczej po kilku dniach reguła
+„zaległy pomiar” oznaczyłaby wszystko jako zaległe. Aby zachować dane między restartami,
+usuń `--reset` z `docker-compose.yml`.
 
 ### Konta demonstracyjne (hasło dla wszystkich: `orbita2026`)
 
-| Login | Rola | Stacja | Co widać |
+| Login | Rola | Stacja | Scenariusz |
 |---|---|---|---|
-| `lekarz.aurora` | nadzorujący | Stacja Orbitalna Aurora | 4 astronautów stacji Aurora |
-| `lekarz.selene` | nadzorujący | Lunar Gateway Selene | 1 astronautę stacji Selene |
-| `anna.kowalska` | astronautka | Aurora | tylko siebie (zanik mięśni łydki: stan krytyczny) |
-| `marcus.reyes` | astronauta | Aurora | tylko siebie (podwyższone ciśnienie) |
-| `yuki.tanaka`, `lena.hoffmann` | astronauci | Aurora | tylko siebie |
-| `omar.haddad` | astronauta | Selene | tylko siebie |
+| `lekarz.aurora` | nadzorujący | Aurora | widzi 4 astronautów stacji Aurora, ich alerty i zakładki |
+| `lekarz.selene` | nadzorujący | Selene | widzi 1 astronautę stacji Selene |
+| `anna.kowalska` | astronautka | Aurora | **krytyczny** zanik mięśni łydki, ostrzeżenie dla kości i środowiska; 4 alerty, więc baner pokazuje „+1 kolejny” |
+| `marcus.reyes` | astronauta | Aurora | ciśnienie, temperatura, kilka słabszych nocy; 7 alertów |
+| `yuki.tanaka` | astronautka | Aurora | **krytyczny** wynik badania moczu (wapń), niska witamina D |
+| `lena.hoffmann` | astronautka | Aurora | tylko alerty środowiskowe stacji (mniej niż 3) |
+| `omar.haddad` | astronauta | Selene | **brak alertów**: zielony pasek „Wszystkie parametry w normie” |
 
+Na stacji Aurora trwa burza słoneczna (ostrzeżenie o promieniowaniu), a wymazy z powierzchni
+są zaległe od 20 dni (alert „warte uwagi”). Te alerty widzi każdy astronauta tej stacji.
 Postacie i stacje są fikcyjne.
 
-### Uruchomienie deweloperskie (bez Dockera dla aplikacji)
+### Uruchomienie deweloperskie
 
 ```bash
 docker compose up -d db
 cd backend
 export DATABASE_URL=postgres://astro:astro@localhost:5432/astro_health JWT_SECRET=dev
-cargo run --bin seed            # migracje + dane demo
-cargo run --bin server          # API na :8080
-cargo test                      # testy domeny, przypadków użycia i JWT
+cargo run --bin seed -- --reset   # migracje + dane demo
+cargo run --bin server            # API na :8080
+cargo test                        # domena, przypadki użycia, JWT
 
 cd ../frontend
 npm install
-npm run dev                     # http://localhost:5173 (proxy /api → :8080)
+npm run dev                       # http://localhost:5173 (proxy /api → :8080)
 ```
 
 Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (480),
 `BIND_ADDR` (`0.0.0.0:8080`), `CORS_ORIGINS` (`http://localhost:5173`), `RUST_LOG`.
+
+---
+
+## Co widzi użytkownik
+
+### Alerty na górze profilu
+
+* Alerty dotyczą parametrów spoza normy i są **posortowane od krytycznych, przez ostrzeżenia,
+  do wartych uwagi** (np. zaległy pomiar).
+* Każdy alert ma **ikonę ważności**: ośmiokąt dla krytycznego, trójkąt dla ostrzeżenia,
+  „i” dla wartego uwagi. Ikony różnią się kształtem, więc ważność nie jest sygnalizowana
+  wyłącznie kolorem.
+* Każdy alert **linkuje do pełnego raportu**: przełącza na właściwą zakładkę, przewija do
+  wykresu, tabeli badań lub mapy ciała i obrysowuje je. Na mapie ciała zaznacza też
+  konkretny mięsień lub kość, a w tabeli badań podświetla wynik.
+* Gdy nie ma alertów krytycznych ani ostrzeżeń, wyświetla się **zielony pasek** „Wszystkie
+  parametry w normie”.
+* Baner pokazuje **3 najważniejsze alerty**. Pod nimi jest wyraźny element „+N kolejnych
+  alertów · zobacz wszystkie”, który otwiera zakładkę **Alerty** z pełną listą pogrupowaną
+  według ważności, ze szczegółami każdego wyniku.
+* Jeden alert przypada na jeden parametr: wymienia najgorszą składową, a pozostałe streszcza
+  („oraz 4 inne wyniki poza normą”). Szczegóły są w zakładce Alerty. Dzięki temu np. 6 mięśni
+  nie generuje 6 alertów.
+
+### Zakładki
+
+| Zakładka | Parametry | Widget |
+|---|---|---|
+| **Środowisko** | jakość powietrza (mikroby szkodliwe, CFU/m³), próbki z powierzchni stacji (CFU/100 cm², harmonogram pobrań), promieniowanie (mSv/doba), natężenie pola grawitacyjnego (µg) | wykresy; próbki: tabela ostatniego pobrania, termin następnego, historia |
+| **Parametry fizjologiczne** *(domyślna)* | tętno, temperatura ciała, ciśnienie, zanik mięśni, zanik kości, badanie krwi, badanie moczu | wykresy; mięśnie i kości na sylwetce; badania jako tabele |
+| **Samopoczucie** | stan psychiczny (notka), sen | łagodna notka; wykres punktacji snu i raport z ostatniej nocy |
+| **Alerty** | wszystkie alerty | lista pogrupowana według ważności |
+
+**Dlaczego domyślna jest zakładka „Parametry fizjologiczne”:** to rdzeń aplikacji, czyli
+parametry życiowe samego astronauty. Pilne sprawy z pozostałych zakładek i tak są widoczne
+w banerze alertów nad zakładkami, więc profil otwiera się na najistotniejszych danych bez
+dokładania informacji. Środowisko jest wspólne dla stacji i zwykle stabilne. Samopoczucie
+jest celowo delikatne i nie powinno być pierwszym, co widzi zestresowany użytkownik.
+Wybór jest zapisany w jednym miejscu: `MetricGroup::default_tab()` w
+`backend/crates/domain/src/metrics/catalog.rs`.
+
+### Szczegóły widgetów
+
+* **Zanik mięśni i zanik kości:** sylwetka (przód i tył), na której każdy mięsień lub kość
+  jest osobnym, podświetlanym kształtem w kolorze swojego stanu. **Po najechaniu** na mięsień
+  pojawia się tooltip z wykresem jego zaniku. Kliknięcie przypina wybrany mięsień w panelu
+  obok, co działa też na ekranach dotykowych. Kości mają **inną paletę** niż mięśnie:
+  błękit, fiolet i róż zamiast zieleni, pomarańczu i czerwieni. Legenda jest pod sylwetką.
+* **Badania krwi i moczu:** wyniki ostatniego badania ze **statusem każdego wyniku**, wybór
+  **poprzednich badań** z listy, kolumna „Poprzednio” ze strzałką trendu. Statusy historycznych
+  badań liczy backend.
+* **Sen:** wykres **ogólnej punktacji** (suma punktów za czas snu, wydajność, sen głęboki,
+  REM, czas zasypiania i wybudzenia; maksymalnie 100) oraz **raport z ostatniej nocy** ze
+  wszystkimi parametrami. Alert powstaje tylko na podstawie punktacji ogólnej, żeby
+  pojedyncze składowe nie zasypywały użytkownika.
+* **Stan psychiczny:** łagodnie sformułowana notka **bez statusów, ocen i kolorów
+  ostrzegawczych**. Nigdy nie generuje alertów.
+* **Parametry stacji** są oznaczone etykietą „Cała stacja”.
+
+### Konta nadzorujące
+
+Karta „Załoga” pokazuje status każdego astronauty **na każdą zakładkę** (najgorszy parametr
+w grupie) oraz **liczniki alertów** według ważności. Zastępuje to 12 kolumn, po jednej na
+parametr, które przy rosnącej liczbie parametrów stawałyby się nieczytelne. Profil astronauty
+otwiera się w zamykanej karcie, z tymi samymi alertami i zakładkami co w widoku astronauty.
 
 ---
 
@@ -75,13 +144,13 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
 | Obszar | Wybór | Uzasadnienie |
 |---|---|---|
 | HTTP w Rust | **axum** (+ tokio, tower-http) | Najpowszechniejszy framework ekosystemu tokio. Ma ekstraktory typowane, a `FromRequestParts` daje czysty punkt na uwierzytelnianie. |
-| Baza danych | **PostgreSQL 16** | Dojrzała baza z partycjonowaniem deklaratywnym (osobna partycja na agregat parametru), `JSONB` na składowe pomiaru i `date_bin` do agregacji szeregów czasowych. |
+| Baza danych | **PostgreSQL 16** | Partycjonowanie deklaratywne (osobna partycja na agregat parametru), `JSONB` na składowe pomiaru i `date_bin` do agregacji szeregów. |
 | Dostęp do DB | **sqlx** | Asynchroniczny driver SQL bez ORM, z wbudowanymi migracjami. Pełna kontrola nad zapytaniami czasowymi. |
-| Auth | **jsonwebtoken** (HS256) + **argon2** | Standardowe crate'y do JWT i do hashowania haseł (Argon2 to rekomendacja OWASP). |
-| UI | **Mantine 8** | Kompletna biblioteka komponentów React z pierwszorzędnym wsparciem TS i ciemnym motywem. Ma też własny pakiet wykresów, więc całe UI pochodzi z jednej biblioteki. |
-| Wykresy | **@mantine/charts** (na **Recharts 3**) | Wykresy spójne stylistycznie z Mantine. Recharts jest najczęściej używaną biblioteką wykresów dla Reacta. |
-| Dane po stronie klienta | **TanStack Query** | Standard cache'owania i synchronizacji danych serwerowych. Każdy widget pobiera dane niezależnie. |
-| Wizualizacja ciała | **2D SVG (przód/tył)** | Model 3D (three.js, rigging, mapowanie regionów) byłby nieproporcjonalnie kosztowny. Schemat 2D jest czytelniejszy klinicznie i równie łatwo rozszerzalny o nowe regiony. |
+| Auth | **jsonwebtoken** (HS256) + **argon2** | Standardowe crate'y do JWT i hashowania haseł (Argon2 to rekomendacja OWASP). |
+| UI | **Mantine 8** | Kompletna biblioteka komponentów React z dobrym wsparciem TS i ciemnym motywem, z własnym pakietem wykresów. |
+| Wykresy | **@mantine/charts** (na **Recharts 3**) | Wykresy spójne stylistycznie z UI, oparte na najpopularniejszej bibliotece wykresów dla Reacta. |
+| Dane po stronie klienta | **TanStack Query** | Cache i deduplikacja zapytań. Każdy widget pobiera dane niezależnie. |
+| Wizualizacja ciała | **2D SVG (przód/tył)** | Model 3D byłby nieproporcjonalnie kosztowny. Schemat 2D z kształtem na każdy mięsień lub kość jest czytelny i łatwo rozszerzalny. |
 
 ---
 
@@ -93,11 +162,12 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
                 └──────────────┬───────────────────────────────┬────────────────────┘
                                │ ports::inbound                │ MeasurementIngestion
                 ┌──────────────▼───────────────────────────────▼────────────────────┐
-                │ application: AuthService, CrewService, HealthService,             │
-                │              IngestionService, AccessPolicy (autoryzacja)         │
+                │ application: Auth, Crew, Health, Alert, Wellbeing, Ingestion      │
+                │              AccessPolicy (autoryzacja), SnapshotReader           │
                 │ ┌───────────────────────────────────────────────────────────────┐ │
-                │ │ domain: MetricDefinition / MetricCatalog, MetricHistory,      │ │
-                │ │         ocena statusu, body_map, Astronaut/User/Role          │ │
+                │ │ domain: MetricDefinition / MetricGroup / MetricCatalog,       │ │
+                │ │         MetricHistory, AlertEngine + AlertRule, body_map,     │ │
+                │ │         WellbeingNote, Subject (astronauta | stacja)          │ │
                 │ └───────────────────────────────────────────────────────────────┘ │
                 └──────────────┬───────────────────────────────┬────────────────────┘
                                │ ports::outbound               │
@@ -111,190 +181,168 @@ Kierunek zależności **wymusza kompilator**, bo każda warstwa to osobny crate:
 
 | Crate | Zależy od | Zawartość |
 |---|---|---|
-| `domain` | tylko `chrono`, `uuid`, `thiserror` | Model, definicje parametrów, walidacja, klasyfikacja, mapa ciała |
-| `application` | `domain` | Porty (traity), przypadki użycia, polityka dostępu, testy z adapterami in-memory |
+| `domain` | tylko `chrono`, `uuid`, `thiserror` | Definicje parametrów i zakładek, walidacja, klasyfikacja, **reguły alertów**, punktacja pochodna, mapa ciała |
+| `application` | `domain` | Porty, przypadki użycia, polityka dostępu, testy z adapterami in-memory |
 | `adapter-postgres` | `application`, `domain`, sqlx | Repozytoria i migracje |
 | `adapter-auth` | `application`, `domain` | `TokenService` (JWT), `PasswordHasher` (Argon2) |
 | `adapter-http` | `application`, `domain`, axum | Routing, DTO, mapowanie błędów. Brak logiki biznesowej |
 | `server` | wszystko | `main` (API) i `bin/seed` |
 
-### Warstwa HTTP
+### Model domeny
 
-`adapter-http` tylko mapuje żądania na porty wejściowe (`AuthUseCase`, `CrewUseCase`,
-`HealthUseCase`). Ekstraktor `Auth` weryfikuje token i przekazuje `Principal` do przypadku
-użycia. Nie podejmuje decyzji o dostępie.
+* **`MetricDefinition`**: kod, nazwa, `group` (zakładka), `scope` (`Astronaut` albo `Station`),
+  typ prezentacji (`line`, `area`, `bar`, `table`, `body`), interwał pomiarów, `alert_policy`
+  oraz składowe. Każda składowa ma jednostkę, zakres wiarygodny, normę i zakres ostrzeżenia.
+  Opcjonalnie ma też część ciała i regułę punktacji.
+* **Składowe pochodne:** punktację snu oblicza domena w `MetricHistory::record` jako sumę
+  punktów składowych (`ScoreRule`: liniowo od `zero_at` do `full_at`). Urządzenie nie może jej
+  przysłać. Mechanizm jest generyczny i nadaje się dla każdego przyszłego wskaźnika złożonego.
+* **`Subject`:** historia należy do astronauty (fizjologia) albo do **stacji** (środowisko).
+  Profil astronauty łączy oba źródła (`SnapshotReader`). Alerty środowiskowe widzi więc każdy
+  członek załogi stacji.
+* **Alerty** (`domain/src/alerts.rs`): `AlertEngine` uruchamia listę `AlertRule` dla każdego
+  parametru katalogu.
+  * `OutOfRangeRule` generuje alert krytyczny lub ostrzeżenie dla składowych objętych
+    `alert_policy`. Każdy nowy parametr dostaje je automatycznie dzięki swoim normom.
+  * `OverdueMeasurementRule` generuje alert „warte uwagi”, gdy ostatni pomiar jest starszy
+    niż 2 interwały.
+  * Nowy rodzaj alertu to nowa implementacja `AlertRule` dopisana w `AlertEngine::standard()`.
+  * Ogólny status parametru jest liczony z tych samych składowych co alerty, więc tabela
+    załogi i baner zawsze się zgadzają.
+
+### Warstwa HTTP
 
 | Metoda | Ścieżka | Opis |
 |---|---|---|
 | POST | `/api/auth/login` | `{username, password}` → `{token, expiresAt, user}` |
 | GET | `/api/me` | Zalogowany użytkownik |
-| GET | `/api/metrics` | Katalog parametrów (składowe, jednostki, zakresy referencyjne, region ciała) |
-| GET | `/api/astronauts` | Załoga stacji ze statusami (tylko konta nadzorujące) |
+| GET | `/api/metrics` | Katalog parametrów (zakładka, zakres, składowe, normy, część ciała, punktacja) |
+| GET | `/api/metric-groups` | Zakładki w kolejności, z oznaczeniem domyślnej |
+| GET | `/api/astronauts` | Załoga stacji ze statusami i licznikami alertów (tylko nadzór) |
 | GET | `/api/astronauts/{id}` | Podsumowanie astronauty |
-| GET | `/api/astronauts/{id}/overview` | Najnowsze wartości, statusy i mapa ciała |
-| GET | `/api/astronauts/{id}/metrics/{code}/series?from&to&bucket=hour\|day\|week` | Szereg czasowy |
+| GET | `/api/astronauts/{id}/overview` | Najnowsze wartości i statusy (wraz ze środowiskiem stacji) |
+| GET | `/api/astronauts/{id}/alerts` | Alerty posortowane według ważności, z celem linku (`group`, `metric`, `findings`) |
+| GET | `/api/astronauts/{id}/wellbeing-note` | Najnowsza notka o stanie psychicznym (lub `null`) |
+| GET | `/api/astronauts/{id}/metrics/{code}/series?from&to&bucket` | Szereg czasowy ze statusem każdego punktu |
 
 ### Autoryzacja (JWT)
 
-* Token HS256 zawiera `sub`, `role`, `station_id` i `astronaut_id` (tylko dla astronautów),
-  a także `iss` i `exp`. Token niespójny z modelem ról jest odrzucany.
 * Reguły są w jednym miejscu, w `application/src/security.rs` (`AccessPolicy`):
-  * **astronauta** widzi wyłącznie profil o własnym `astronaut_id`,
-  * **nadzorujący** widzi wszystkich astronautów **swojej stacji** i nikogo spoza niej.
-* Reguły są egzekwowane **wewnątrz przypadków użycia** (`Authorizer::astronaut_visible_to`,
-  `AccessPolicy::can_list_crew`), a nie w routingu. Nowa trasa HTTP albo inny adapter
-  (np. gRPC) nie ominie ich, bo nie da się pobrać danych z pominięciem przypadku użycia.
-  Testy w `application/src/services/tests.rs` sprawdzają to bez HTTP i bez bazy.
-* Frontend dopasowuje interfejs do roli (`RequireRole`), ale to tylko wygoda. Granicą
-  bezpieczeństwa jest backend (zwraca 403, a bez tokena 401).
+  * **astronauta** widzi wyłącznie swój profil,
+  * **nadzorujący** widzi wszystkich astronautów **swojej stacji**, łącznie z ich alertami,
+    notkami i zakładkami.
+* Reguły są egzekwowane **wewnątrz przypadków użycia**, także nowych (`AlertService`,
+  `WellbeingService`). Przechodzą one przez ten sam `Authorizer` co pozostałe, więc żadna
+  trasa ani adapter ich nie ominie. Pokrywają to testy w `application/src/services/tests.rs`.
+* Dane środowiskowe stacji pobiera się wyłącznie przez profil astronauty, do którego
+  użytkownik ma dostęp. Osobnego endpointu stacji nie ma, więc nie ma też osobnej reguły
+  do ominięcia.
 
-### Baza danych: agregaty historyczne
+### Baza danych
 
-Agregatem jest **historia jednego parametru dla jednego astronauty** (`MetricHistory`).
-Domena waliduje każdy pomiar względem definicji parametru: komplet składowych, brak
-nieznanych składowych i fizjologicznie wiarygodny zakres. Dopiero potem repozytorium
-dopisuje pomiar.
+Każdy parametr ma **własny agregat historyczny**, czyli fizycznie osobną partycję, tworzoną
+automatycznie przy starcie z katalogu (`ensure_storage`), **bez migracji**:
 
-```sql
-measurements (metric_code, astronaut_id, recorded_at, components JSONB, source, ...)
-  PRIMARY KEY (metric_code, astronaut_id, recorded_at)
-  PARTITION BY LIST (metric_code)
-    ├── measurements_blood_pressure
-    ├── measurements_bone_density
-    ├── measurements_muscle_atrophy
-    └── measurements_heart_rate          ← tworzona automatycznie przy starcie
-
-latest_measurements (astronaut_id, metric_code, recorded_at, components)   -- projekcja
-  PRIMARY KEY (astronaut_id, metric_code)
+```
+measurements          PARTITION BY LIST (metric_code)      -- fizjologia astronauty
+  ├── measurements_heart_rate, measurements_body_temperature, measurements_blood_pressure,
+  ├── measurements_muscle_atrophy, measurements_bone_density,
+  └── measurements_blood_panel, measurements_urine_panel, measurements_sleep
+station_measurements  PARTITION BY LIST (metric_code)      -- środowisko stacji (migracja 0002)
+  └── station_measurements_air_microbes, _surface_microbes, _radiation, _gravity
+latest_measurements / latest_station_measurements          -- projekcja „najnowsza wartość”
+wellbeing_notes (astronaut_id, written_at, body)           -- historia notek (migracja 0002)
 ```
 
-* **Każdy parametr ma fizycznie osobną partycję.** Aplikacja tworzy ją przy starcie na
-  podstawie katalogu (`MeasurementRepository::ensure_storage`), więc nowy parametr nie
-  wymaga migracji.
-* **Szereg czasowy** to zakres po kluczu głównym (`metric_code`, `astronaut_id`,
-  `recorded_at`), z przycinaniem do jednej partycji. Opcjonalny `bucket` uśrednia każdą
-  składową w oknach (`date_bin` + `jsonb_each_text`). Zapytanie jest generyczne i działa
-  dla każdego parametru.
-* **Najnowsza wartość** to jeden wiersz w `latest_measurements`, aktualizowany w tej samej
-  transakcji co zapis historii (upsert tylko, gdy pomiar jest nowszy). Przegląd, lista
-  załogi i mapa ciała czytają po jednym wierszu na parametr.
-* `components` w `JSONB` ma kształt gotowy do wykresu, np. `{"systolic": 118, "diastolic": 76}`.
-  Schemat tych danych pilnuje domena, nie baza.
+* Klucz główny `(metric_code, subject, recorded_at)` jest jednocześnie indeksem szeregu
+  czasowego. Najnowsza wartość to jeden wiersz w projekcji, aktualizowany w tej samej
+  transakcji co zapis historii.
+* **Badanie laboratoryjne to jeden pomiar** z wieloma składowymi (analitami) w `JSONB`.
+  Historia badań to po prostu szereg czasowy tego parametru, a „poprzednie badania” są
+  pobierane tym samym generycznym zapytaniem.
+* Migracja `0002_environment_alerts_wellbeing.sql` jest addytywna. Sprawdziłem ją na bazie
+  z danymi sprzed zmiany.
 
 ### Przyjmowanie danych z urządzeń
 
-Port wejściowy `MeasurementIngestion::ingest(Vec<DeviceMeasurement>) -> IngestReport`
-(`application/src/ports/inbound.rs`) waliduje dane w domenie i zwraca raport z pomiarami
-przyjętymi i odrzuconymi. Prawdziwa integracja (MQTT, HL7/FHIR, mostek szeregowy) będzie
-kolejnym adapterem wywołującym ten port.
-
-Na razie jedynym klientem portu jest **seeder** (`backend/crates/server/src/bin/seed.rs`).
-Generuje on realistyczną historię: ciśnienie codziennie rano, densytometria i USG mięśni
-co tydzień. Drift fizjologiczny jest typowy dla mikrograwitacji (około 1–1,5% BMD na
-miesiąc, zanik łydki szybszy niż uda). Każdy astronauta ma indywidualny profil ryzyka.
-Seeder przechodzi przez ten sam port co urządzenia, więc dane demo podlegają tej samej
-walidacji.
-
-### Frontend: modularny dashboard
-
-```
-frontend/src/
-  api/          klient fetch z tokenem, typy DTO, hooki TanStack Query
-  auth/         AuthContext (login, wylogowanie przy 401, trwała sesja), RequireRole
-  pages/        LoginPage, MyProfilePage (astronauta), SupervisorPage (karty)
-  components/   AppLayout, HealthProfile, CrewTable, StatusBadge, ...
-  dashboard/
-    registry.tsx      ← rejestr widgetów: jedyne miejsce, z którego dashboard wie, co rysować
-    Dashboard.tsx     siatka renderująca moduły z rejestru
-    widgets/          BodyMapWidget, AttentionWidget, MetricChartWidget (generyczny),
-                      BloodPressureWidget (przykład widgetu dedykowanego), MetricChart
-```
-
-* Każdy widget to niezależny moduł `WidgetModule { id, span, Component }`, który sam pobiera
-  swoje dane.
-* Widgety przekrojowe (mapa ciała, „Wymaga uwagi”) są w `profileWidgets`.
-* **Każdy parametr z katalogu automatycznie dostaje widget.** Domyślnie jest to generyczny
-  `MetricChartWidget`: seria na każdą składową, linie referencyjne z zakresów klinicznych
-  i typ wykresu z definicji. Dedykowany widget rejestruje się jedną linią
-  w `metricWidgetOverrides`, jak `blood_pressure` → `BloodPressureWidget`.
-* Mapa ciała koloruje regiony według `bodyRegion` składowych, a kolumny tabeli załogi
-  pochodzą z katalogu. Nowy parametr pojawia się w obu miejscach sam.
-* **Astronauta** widzi tylko `/me`, czyli swój profil. **Nadzorujący** ma kartę „Załoga”
-  (tabela ze statusami per parametr, posortowana od najgorszego) i otwiera profile
-  astronautów w zamykanych kartach (`/crew/:id`).
+Port `MeasurementIngestion::ingest(Vec<DeviceMeasurement>)` przyjmuje teraz `subject`, czyli
+astronautę albo stację. Domena odrzuca pomiar o niewłaściwym zakresie (np. promieniowanie
+przypisane astronaucie) i przysłaną punktację pochodną. Seeder
+(`backend/crates/server/src/bin/seed.rs`) generuje historię **każdego** parametru katalogu
+z jego `DemoSignal`. Scenariusze (burza słoneczna, zaległe wymazy, gorsze noce, wynik
+krytyczny badania) to deklaratywne przesunięcia i pauzy nałożone na ten sygnał. Wszystkie
+pomiary przechodzą przez port, jak dane z urządzeń.
 
 ---
 
 ## Jak dodać nowy parametr zdrowotny
 
-Na przykładzie tętna spoczynkowego, dodanego w osobnym commicie
-(`git show HEAD~1 --stat`, commit *„Add resting heart rate metric”*):
-
-```
- backend/crates/domain/src/metrics/catalog.rs                  |  1 +
- backend/crates/domain/src/metrics/definitions/heart_rate.rs   | 22 ++++++++
- backend/crates/domain/src/metrics/definitions/mod.rs          |  1 +
-```
-
-**1. Definicja** w `backend/crates/domain/src/metrics/definitions/heart_rate.rs`:
+1. **Definicja**: plik w `backend/crates/domain/src/metrics/definitions/`, np.:
 
 ```rust
 pub fn definition() -> MetricDefinition {
     MetricDefinition::builder("heart_rate", "Tętno spoczynkowe")
         .description("Spoczynkowa częstość akcji serca mierzona rano przez opaskę.")
-        .chart(ChartKind::Line)
-        .sampling_hours(24)
+        .chart(ChartKind::Line)              // line | area | bar | table | body
+        .group("physiology")                 // zakładka
+        .sampling_hours(24)                  // interwał (także dla alertu o zaległym pomiarze)
         .component(ComponentDefinition::new(
             "resting", "Tętno", "bpm",
-            BodyRegion::Heart,                 // gdzie pokazać na mapie ciała
+            BodyRegion::Heart,                 // część ciała albo None
             Bounds::between(25.0, 220.0),      // zakres wiarygodny (walidacja urządzeń)
             Bounds::between(50.0, 90.0),       // norma
             Bounds::between(45.0, 100.0),      // ostrzeżenie (poza nim: krytyczny)
-            0,                                 // miejsca po przecinku
+            0,
             DemoSignal { baseline: 62.0, spread: 5.0, drift_per_day: 0.02, noise: 3.0 },
         ))
         .build()
 }
 ```
 
-**2. Rejestracja**: `pub mod heart_rate;` w `definitions/mod.rs` i jedna linia
-w `MetricCatalog::builtin()`.
+   Parametr środowiskowy dostaje dodatkowo `.scope(MetricScope::Station)`. Parametr
+   złożony: `.scored(ScoreRule{..})` na składowych i `.derived_score(...)`. Ograniczenie
+   alertów do wybranych składowych: `.alert_policy(AlertPolicy::Only(..))`.
 
-To wszystko. Po restarcie backendu bez żadnych dodatkowych kroków działa:
+2. **Rejestracja**: `pub mod ...;` w `definitions/mod.rs` i jedna linia
+   w `MetricCatalog::builtin()`.
 
-| Element | Skąd się bierze |
-|---|---|
-| partycja `measurements_heart_rate` | `ensure_storage` przy starcie, **bez migracji** |
-| walidacja pomiarów z urządzeń | `MetricHistory::record` na podstawie definicji |
-| status norma/ostrzeżenie/krytyczny | `MetricDefinition::assess` |
-| region „Serce” na mapie ciała | `body_map` + `bodyRegion` |
-| endpointy `/series` i `/overview` | generyczne repozytorium i DTO |
-| widget z wykresem i liniami referencyjnymi | generyczny `MetricChartWidget`, **bez zmian we frontendzie** |
-| kolumna w tabeli załogi | katalog `/api/metrics` |
-| dane demo | generyczny symulator seedera (`DemoSignal`), po `seed --reset` |
+Bez dodatkowych kroków działają wtedy: partycja w bazie, walidacja, statusy, **alerty**,
+endpointy, widget w odpowiedniej zakładce (domyślny dla typu wykresu, `ScoreWidget` dla
+parametrów z punktacją), kolumna statusu zakładki w tabeli załogi i dane demo.
+Przykład: commit *„Add resting heart rate metric”* to 1 plik i 2 linie.
 
-Opcjonalnie można dodać dedykowaną wizualizację: komponent w `frontend/src/dashboard/widgets/`
-i jedna linia w `metricWidgetOverrides`. Nowy region ciała wymaga wariantu w `BodyRegion`
-i kształtu w `BodyFigure.tsx`.
+Opcjonalnie można dodać dedykowany widget: komponent w `frontend/src/dashboard/widgets/`
+i linia w `metricWidgetOverrides` (`frontend/src/dashboard/registry.tsx`). Nowa część ciała
+wymaga wariantu `BodyRegion` i kształtu w `PARTS` (`BodyFigure.tsx`).
 
-> **Kompromis:** `DemoSignal` (parametry symulacji) leży w definicji parametru, choć używa
-> go tylko seeder. Dzięki temu nowy parametr to naprawdę jeden plik, zgodnie z priorytetem
-> modularności. W produkcji można to pole przenieść do konfiguracji seedera.
+## Jak dodać zakładkę
+
+Jedna linia `MetricGroup::new("kod", "Nazwa", "opis")` w `MetricCatalog::builtin()`, a potem
+`.group("kod")` w definicjach parametrów. Frontend tworzy zakładki z `/api/metric-groups`.
+Moduły niezwiązane z jednym parametrem (jak notka o samopoczuciu) dopisuje się
+w `groupWidgets` w rejestrze.
 
 ---
+
+## Założenia
+
+* **Środowisko jest per stacja**, nie per astronauta. Profil astronauty pokazuje środowisko
+  jego stacji, a alert środowiskowy trafia do każdego członka załogi.
+* **Notka o stanie psychicznym** powstaje poza systemem. Tutaj jest tylko odczytywana
+  (port `WellbeingRepository`, w seedzie symulowana). Celowo nie ma statusu i nie generuje
+  alertów.
+* **Punktacja snu** jest sumą sub-punktów (maksymalnie 100). Normy: co najmniej 70 to
+  norma, co najmniej 50 to ostrzeżenie.
+* **Normy referencyjne** są realistycznymi przybliżeniami (limity ISS dla mikrobów,
+  typowe zakresy laboratoryjne, T-score według WHO). To nie są zalecenia kliniczne.
+* **Ważność alertów:** `critical` oznacza wartość poza zakresem ostrzeżenia, `warning`
+  wartość poza normą, `notice` zaległy pomiar (sprawa warta uwagi, bez ryzyka zdrowotnego).
+* Endpoint `/overview` zachowuje pole `body` (mapa wszystkich regionów) dla zgodności API.
+  Frontend korzysta teraz z map per parametr.
 
 ## Testy
 
 ```bash
-cd backend && cargo test     # domena, przypadki użycia (polityka dostępu, ingest), JWT/Argon2
+cd backend && cargo test     # domena (alerty, punktacja, zakres podmiotu), przypadki użycia, JWT
 cd frontend && npm run build # typecheck + build produkcyjny
 ```
-
-Testy przypadków użycia działają na adapterach in-memory. Pokazują, że rdzeń heksagonu
-nie zależy od HTTP ani od bazy.
-
-## Dalszy rozwój
-
-* Prawdziwy adapter urządzeń (np. MQTT/FHIR) jako nowy driving adapter portu `MeasurementIngestion`.
-* Refresh tokeny i rotacja kluczy (np. RS256 + JWKS) za tym samym portem `TokenService`.
-* Alerty push przy przejściu w stan krytyczny, jako kolejny konsument zdarzenia zapisu pomiaru.

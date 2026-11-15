@@ -28,18 +28,67 @@ export interface MetricComponent {
   key: string;
   label: string;
   unit: string;
-  bodyRegion: string;
+  /** Body part the value is drawn on (body-map metrics), otherwise null. */
+  bodyRegion: string | null;
   decimals: number;
   reference: { normal: Bounds; warning: Bounds };
+  /** Computed by the backend from other components (e.g. sleep score). */
+  derived: boolean;
+  scoreMax: number | null;
 }
+
+export type ChartKind = 'line' | 'area' | 'bar' | 'table' | 'body';
 
 export interface MetricDefinition {
   code: string;
   name: string;
   description: string;
-  chart: 'line' | 'area' | 'bar';
+  chart: ChartKind;
+  /** Dashboard tab (MetricGroup.code). */
+  group: string;
+  scope: 'astronaut' | 'station';
   samplingIntervalHours: number;
   components: MetricComponent[];
+}
+
+export interface MetricGroup {
+  code: string;
+  name: string;
+  description: string;
+  default: boolean;
+}
+
+export type AlertSeverity = 'critical' | 'warning' | 'notice';
+
+export interface AlertFinding {
+  component: string;
+  label: string;
+  value: number;
+  unit: string;
+  status: HealthStatus;
+  normal: Bounds;
+}
+
+export interface Alert {
+  id: string;
+  severity: AlertSeverity;
+  metric: string;
+  group: string;
+  title: string;
+  message: string;
+  recordedAt: string | null;
+  findings: AlertFinding[];
+}
+
+export interface AlertCounts {
+  critical: number;
+  warning: number;
+  notice: number;
+}
+
+export interface WellbeingNote {
+  writtenAt: string;
+  body: string;
 }
 
 export interface Astronaut {
@@ -57,6 +106,7 @@ export interface CrewMember extends Astronaut {
   overallStatus: HealthStatus;
   lastMeasurementAt: string | null;
   metricStatuses: Record<string, HealthStatus>;
+  alerts: AlertCounts;
 }
 
 export interface MetricSnapshot {
@@ -91,6 +141,9 @@ export interface Overview {
 export interface SeriesPoint {
   t: string;
   values: Record<string, number>;
+  /** Status of the whole reading and of every component (from the backend). */
+  status: HealthStatus;
+  statuses: Record<string, HealthStatus>;
 }
 
 export interface Series {

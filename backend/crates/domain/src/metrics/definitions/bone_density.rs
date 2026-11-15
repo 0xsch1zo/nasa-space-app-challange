@@ -2,45 +2,62 @@ use crate::body::BodyRegion;
 use crate::metrics::{Bounds, ChartKind, ComponentDefinition, DemoSignal, MetricDefinition};
 
 /// Bone mineral density expressed as a T-score per skeletal site.
-/// In microgravity weight-bearing bones lose ~1–1.5 % BMD per month.
+/// In microgravity weight-bearing bones lose ~1–1.5 % BMD per month, while
+/// non-weight-bearing sites (radius) barely change.
 pub fn definition() -> MetricDefinition {
-    MetricDefinition::builder("bone_density", "Gęstość kości")
-        .description(
-            "Gęstość mineralna kości (T-score) w odcinku lędźwiowym i szyjce kości udowej.",
+    let site = |key, label, region, baseline, drift| {
+        ComponentDefinition::new(
+            key,
+            label,
+            "T-score",
+            region,
+            Bounds::between(-6.0, 5.0),
+            Bounds::at_least(-1.0),
+            Bounds::at_least(-2.5),
+            2,
+            DemoSignal {
+                baseline,
+                spread: 0.35,
+                drift_per_day: drift,
+                noise: 0.03,
+            },
         )
-        .chart(ChartKind::Line)
-        .sampling_hours(24 * 7)
-        .component(ComponentDefinition::new(
+    };
+    MetricDefinition::builder("bone_density", "Zanik kości")
+        .description(
+            "Gęstość mineralna kości (T-score) w miejscach najbardziej narażonych na utratę masy.",
+        )
+        .chart(ChartKind::Body)
+        .group("physiology")
+        .sampling_hours(24 * 14)
+        .component(site(
             "lumbar_spine",
             "Kręgosłup lędźwiowy",
-            "T-score",
-            BodyRegion::Spine,
-            Bounds::between(-6.0, 5.0),
-            Bounds::at_least(-1.0),
-            Bounds::at_least(-2.5),
-            2,
-            DemoSignal {
-                baseline: 0.4,
-                spread: 0.45,
-                drift_per_day: -0.0045,
-                noise: 0.03,
-            },
+            BodyRegion::LumbarSpine,
+            0.4,
+            -0.0045,
         ))
-        .component(ComponentDefinition::new(
+        .component(site("pelvis", "Miednica", BodyRegion::Pelvis, 0.3, -0.0055))
+        .component(site(
             "femoral_neck",
             "Szyjka kości udowej",
-            "T-score",
-            BodyRegion::Hips,
-            Bounds::between(-6.0, 5.0),
-            Bounds::at_least(-1.0),
-            Bounds::at_least(-2.5),
-            2,
-            DemoSignal {
-                baseline: 0.2,
-                spread: 0.45,
-                drift_per_day: -0.006,
-                noise: 0.03,
-            },
+            BodyRegion::FemoralNeck,
+            0.2,
+            -0.006,
+        ))
+        .component(site(
+            "distal_tibia",
+            "Dalsza nasada piszczeli",
+            BodyRegion::DistalTibia,
+            0.3,
+            -0.005,
+        ))
+        .component(site(
+            "distal_radius",
+            "Dalsza nasada kości promieniowej",
+            BodyRegion::DistalRadius,
+            0.3,
+            -0.0005,
         ))
         .build()
 }
