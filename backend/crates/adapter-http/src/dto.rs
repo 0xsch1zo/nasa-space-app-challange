@@ -1,13 +1,15 @@
-//! JSON contracts. Mapping is mechanical and metric-agnostic: new metrics flow
-//! through these types without changes.
+//! JSON contracts. Mapping is mechanical and metric-agnostic: new metrics,
+//! groups and alert rules flow through these types without changes.
 
 use std::collections::BTreeMap;
 
-use application::ports::inbound::{CrewMemberSummary, HealthOverview, TimeSeries};
+use application::ports::inbound::{AlertCounts, CrewMemberSummary, HealthOverview, TimeSeries};
 use application::security::Principal;
 use chrono::{DateTime, NaiveDate, Utc};
+use domain::alerts::Alert;
 use domain::crew::Astronaut;
-use domain::metrics::{Bounds, ComponentDefinition, MetricDefinition};
+use domain::metrics::{Bounds, ComponentDefinition, MetricDefinition, MetricGroup};
+use domain::wellbeing::WellbeingNote;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -78,9 +80,12 @@ pub struct ComponentDto {
     pub key: String,
     pub label: String,
     pub unit: String,
-    pub body_region: &'static str,
+    pub body_region: Option<&'static str>,
     pub decimals: u8,
     pub reference: ReferenceDto,
+    pub derived: bool,
+    /// Maximum contribution to the metric's derived score.
+    pub score_max: Option<f64>,
 }
 
 impl From<&ComponentDefinition> for ComponentDto {
@@ -89,12 +94,14 @@ impl From<&ComponentDefinition> for ComponentDto {
             key: c.key.clone(),
             label: c.label.clone(),
             unit: c.unit.clone(),
-            body_region: c.body_region.as_str(),
+            body_region: c.body_region.map(|r| r.as_str()),
             decimals: c.decimals,
             reference: ReferenceDto {
                 normal: c.reference.normal.into(),
                 warning: c.reference.warning.into(),
             },
+            derived: c.derived,
+            score_max: c.score.map(|s| s.max_points),
         }
     }
 }
@@ -106,6 +113,8 @@ pub struct MetricDefinitionDto {
     pub name: String,
     pub description: String,
     pub chart: &'static str,
+    pub group: String,
+    pub scope: &'static str,
     pub sampling_interval_hours: u32,
     pub components: Vec<ComponentDto>,
 }
@@ -117,8 +126,30 @@ impl From<&MetricDefinition> for MetricDefinitionDto {
             name: d.name.clone(),
             description: d.description.clone(),
             chart: d.chart.as_str(),
+            group: d.group.clone(),
+            scope: d.scope.as_str(),
             sampling_interval_hours: d.sampling_interval_hours,
             components: d.components.iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricGroupDto {
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub default: bool,
+}
+
+impl From<&MetricGroup> for MetricGroupDto {
+    fn from(g: &MetricGroup) -> Self {
+        Self {
+            code: g.code.clone(),
+            name: g.name.clone(),
+            description: g.description.clone(),
+            default: g.default,
         }
     }
 }
@@ -150,6 +181,23 @@ impl From<&Astronaut> for AstronautDto {
 }
 
 #[derive(Serialize)]
+pub struct AlertCountsDto {
+    pub critical: usize,
+    pub warning: usize,
+    pub notice: usize,
+}
+
+impl From<AlertCounts> for AlertCountsDto {
+    fn from(c: AlertCounts) -> Self {
+        Self {
+            critical: c.critical,
+            warning: c.warning,
+            notice: c.notice,
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CrewMemberDto {
     #[serde(flatten)]
@@ -159,6 +207,7 @@ pub struct CrewMemberDto {
     pub overall_status: &'static str,
     pub last_measurement_at: Option<DateTime<Utc>>,
     pub metric_statuses: BTreeMap<String, &'static str>,
+    pub alerts: AlertCountsDto,
 }
 
 impl From<CrewMemberSummary> for CrewMemberDto {
@@ -174,6 +223,7 @@ impl From<CrewMemberSummary> for CrewMemberDto {
                 .into_iter()
                 .map(|(code, st)| (code.to_string(), st.as_str()))
                 .collect(),
+            alerts: s.alert_counts.into(),
         }
     }
 }
@@ -280,6 +330,8 @@ pub struct SeriesParams {
 pub struct SeriesPointDto {
     pub t: DateTime<Utc>,
     pub values: BTreeMap<String, f64>,
+    pub status: &'static str,
+    pub statuses: BTreeMap<String, &'static str>,
 }
 
 #[derive(Serialize)]
@@ -296,11 +348,88 @@ impl From<TimeSeries> for SeriesDto {
             points: s
                 .points
                 .into_iter()
-                .map(|r| SeriesPointDto {
-                    t: r.recorded_at,
-                    values: r.values,
+                .map(|p| SeriesPointDto {
+                    t: p.reading.recorded_at,
+                    values: p.reading.values,
+                    status: p.assessment.status.as_str(),
+                    statuses: p
+                        .assessment
+                        .components
+                        .into_iter()
+                        .map(|c| (c.key, c.status.as_str()))
+                        .collect(),
                 })
                 .collect(),
+        }
+    }
+}
+
+// ---------- alerts ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertFindingDto {
+    pub component: String,
+    pub label: String,
+    pub value: f64,
+    pub unit: String,
+    pub status: &'static str,
+    pub normal: BoundsDto,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertDto {
+    pub id: String,
+    pub severity: &'static str,
+    pub metric: String,
+    pub group: String,
+    pub title: String,
+    pub message: String,
+    pub recorded_at: Option<DateTime<Utc>>,
+    pub findings: Vec<AlertFindingDto>,
+}
+
+impl From<Alert> for AlertDto {
+    fn from(a: Alert) -> Self {
+        Self {
+            id: a.id,
+            severity: a.severity.as_str(),
+            metric: a.metric.to_string(),
+            group: a.group,
+            title: a.title,
+            message: a.message,
+            recorded_at: a.recorded_at,
+            findings: a
+                .findings
+                .into_iter()
+                .map(|f| AlertFindingDto {
+                    component: f.component,
+                    label: f.label,
+                    value: f.value,
+                    unit: f.unit,
+                    status: f.status.as_str(),
+                    normal: f.normal.into(),
+                })
+                .collect(),
+        }
+    }
+}
+
+// ---------- wellbeing ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WellbeingNoteDto {
+    pub written_at: DateTime<Utc>,
+    pub body: String,
+}
+
+impl From<WellbeingNote> for WellbeingNoteDto {
+    fn from(n: WellbeingNote) -> Self {
+        Self {
+            written_at: n.written_at,
+            body: n.body,
         }
     }
 }

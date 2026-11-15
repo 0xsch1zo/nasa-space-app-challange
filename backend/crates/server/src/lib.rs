@@ -3,9 +3,14 @@
 use std::sync::Arc;
 
 use adapter_auth::{Argon2Hasher, JwtTokenService};
-use adapter_postgres::{PgCrewRepository, PgMeasurementRepository, PgPool, PgUserRepository};
+use adapter_postgres::{
+    PgCrewRepository, PgMeasurementRepository, PgPool, PgUserRepository, PgWellbeingRepository,
+};
 use application::ports::outbound::MeasurementRepository;
-use application::services::{AuthService, CrewService, HealthService, IngestionService};
+use application::services::{
+    AlertService, AuthService, CrewService, HealthService, IngestionService, WellbeingService,
+};
+use domain::alerts::AlertEngine;
 use domain::metrics::MetricCatalog;
 
 pub struct Config {
@@ -53,6 +58,8 @@ pub struct Container {
     pub auth: Arc<AuthService>,
     pub crew: Arc<CrewService>,
     pub health: Arc<HealthService>,
+    pub alerts: Arc<AlertService>,
+    pub wellbeing: Arc<WellbeingService>,
     pub ingestion: Arc<IngestionService>,
     pub hasher: Arc<Argon2Hasher>,
 }
@@ -60,7 +67,11 @@ pub struct Container {
 /// Runs migrations and provisions per-metric storage from the catalog.
 pub async fn prepare_database(pool: &PgPool, catalog: &MetricCatalog) -> anyhow::Result<()> {
     adapter_postgres::migrate(pool).await?;
-    let codes: Vec<_> = catalog.all().iter().map(|m| m.code.clone()).collect();
+    let codes: Vec<_> = catalog
+        .all()
+        .iter()
+        .map(|m| (m.code.clone(), m.scope))
+        .collect();
     PgMeasurementRepository::new(pool.clone())
         .ensure_storage(&codes)
         .await
@@ -72,7 +83,9 @@ pub fn build(pool: PgPool, config: &Config) -> Container {
     let catalog = Arc::new(MetricCatalog::builtin());
     let users = Arc::new(PgUserRepository::new(pool.clone()));
     let crew_repo = Arc::new(PgCrewRepository::new(pool.clone()));
-    let measurements = Arc::new(PgMeasurementRepository::new(pool));
+    let measurements = Arc::new(PgMeasurementRepository::new(pool.clone()));
+    let notes = Arc::new(PgWellbeingRepository::new(pool));
+    let alert_engine = Arc::new(AlertEngine::standard());
     let hasher = Arc::new(Argon2Hasher);
     let tokens = Arc::new(JwtTokenService::new(
         config.jwt_secret.as_bytes(),
@@ -85,7 +98,15 @@ pub fn build(pool: PgPool, config: &Config) -> Container {
             crew_repo.clone(),
             measurements.clone(),
             catalog.clone(),
+            alert_engine.clone(),
         )),
+        alerts: Arc::new(AlertService::new(
+            crew_repo.clone(),
+            measurements.clone(),
+            catalog.clone(),
+            alert_engine,
+        )),
+        wellbeing: Arc::new(WellbeingService::new(crew_repo.clone(), notes)),
         health: Arc::new(HealthService::new(
             crew_repo.clone(),
             measurements.clone(),

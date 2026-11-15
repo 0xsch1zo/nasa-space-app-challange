@@ -1,31 +1,59 @@
-import type { MetricDefinition } from '../api/types';
-import type { MetricWidgetComponent, WidgetModule } from './types';
-import { attentionWidget } from './widgets/AttentionWidget';
-import { bodyMapWidget } from './widgets/BodyMapWidget';
+import type { ChartKind, MetricDefinition } from '../api/types';
+import type { GridSpan, MetricWidgetComponent, WidgetModule } from './types';
 import { BloodPressureWidget } from './widgets/BloodPressureWidget';
+import { bodyMetricWidget, BODY_PALETTES } from './widgets/BodyMetricWidget';
+import { LabPanelWidget } from './widgets/LabPanelWidget';
+import { mentalNoteWidget } from './widgets/MentalNoteWidget';
 import { MetricChartWidget } from './widgets/MetricChartWidget';
+import { SamplingWidget } from './widgets/SamplingWidget';
+import { ScoreWidget } from './widgets/ScoreWidget';
 
 /**
  * Widget registry — the only place the dashboard learns what to render.
  *
- * 1. `profileWidgets`: cross-metric modules (body map, alerts). Reorder,
- *    remove or append modules here.
- * 2. Every metric in the backend catalog automatically gets a widget:
- *    the generic `MetricChartWidget`, unless a custom one is registered in
- *    `metricWidgetOverrides`. A NEW METRIC THEREFORE NEEDS NO FRONTEND CHANGE;
- *    a bespoke visualisation is one component + one line below.
+ * Tabs come from the backend (metric groups); every metric of the catalog is
+ * placed in its group's tab automatically:
+ *
+ * 1. a custom widget from `metricWidgetOverrides`, if registered;
+ * 2. otherwise `ScoreWidget` for metrics with a derived score;
+ * 3. otherwise the default widget for its chart kind (`widgetsByChart`).
+ *
+ * A NEW METRIC THEREFORE NEEDS NO FRONTEND CHANGE. A NEW TAB needs only a
+ * backend group; non-metric modules for a tab go to `groupWidgets`.
  */
-export const profileWidgets: WidgetModule[] = [bodyMapWidget, attentionWidget];
+
+/** Modules that are not tied to one metric, shown first in their tab. */
+export const groupWidgets: Record<string, WidgetModule[]> = {
+  wellbeing: [mentalNoteWidget],
+};
 
 export const metricWidgetOverrides: Record<string, MetricWidgetComponent> = {
   blood_pressure: BloodPressureWidget,
+  surface_microbes: SamplingWidget,
+  muscle_atrophy: bodyMetricWidget(BODY_PALETTES.muscle),
+  // Same body view as muscles, different colours to tell them apart.
+  bone_density: bodyMetricWidget(BODY_PALETTES.bone),
 };
 
+const widgetsByChart: Record<ChartKind, MetricWidgetComponent> = {
+  line: MetricChartWidget,
+  area: MetricChartWidget,
+  bar: MetricChartWidget,
+  table: LabPanelWidget,
+  body: bodyMetricWidget(BODY_PALETTES.muscle),
+};
+
+/** Composite score reports use the full width; everything else half. */
+const spanFor = (hasScore: boolean): GridSpan => (hasScore ? { base: 12 } : { base: 12, lg: 6 });
+
 export function metricWidget(metric: MetricDefinition): WidgetModule {
-  const Widget = metricWidgetOverrides[metric.code] ?? MetricChartWidget;
+  const hasScore = metric.components.some((c) => c.derived);
+  const Widget =
+    metricWidgetOverrides[metric.code] ?? (hasScore ? ScoreWidget : widgetsByChart[metric.chart]);
   return {
-    id: `metric:${metric.code}`,
-    span: { base: 12, lg: 6 },
+    id: metric.code,
+    span: spanFor(hasScore),
+    usesRange: metric.chart !== 'table',
     Component: ({ ctx }) => (
       <Widget
         ctx={ctx}
@@ -36,6 +64,9 @@ export function metricWidget(metric: MetricDefinition): WidgetModule {
   };
 }
 
-export function buildDashboard(catalog: MetricDefinition[]): WidgetModule[] {
-  return [...profileWidgets, ...catalog.map(metricWidget)];
+export function widgetsForGroup(group: string, catalog: MetricDefinition[]): WidgetModule[] {
+  return [
+    ...(groupWidgets[group] ?? []),
+    ...catalog.filter((m) => m.group === group).map(metricWidget),
+  ];
 }

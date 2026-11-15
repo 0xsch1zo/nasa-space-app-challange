@@ -1,4 +1,4 @@
-import type { Bounds, HealthStatus, MetricComponent } from '../api/types';
+import type { AlertSeverity, Bounds, HealthStatus, MetricComponent } from '../api/types';
 
 export const statusColor: Record<HealthStatus, string> = {
   unknown: 'gray',
@@ -32,3 +32,18 @@ export function formatBounds(b: Bounds, unit: string) {
   if (b.max !== null) return `≤ ${b.max} ${unit}`;
   return 'dowolna';
 }
+
+export const severityColor: Record<AlertSeverity, string> = {
+  critical: 'red',
+  warning: 'yellow',
+  notice: 'blue',
+};
+
+export const severityLabel: Record<AlertSeverity, string> = {
+  critical: 'Krytyczne',
+  warning: 'Ostrzeżenie',
+  notice: 'Warte uwagi',
+};
+
+export const worstStatus = (statuses: HealthStatus[]): HealthStatus =>
+  statuses.reduce<HealthStatus>((w, s) => (statusRank[s] > statusRank[w] ? s : w), 'unknown');

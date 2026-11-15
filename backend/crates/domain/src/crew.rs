@@ -84,3 +84,10 @@ pub struct User {
     /// Set for astronaut accounts, `None` for supervisors.
     pub astronaut_id: Option<AstronautId>,
 }
+
+/// Owner of a metric history: an astronaut or a whole station.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Subject {
+    Astronaut(AstronautId),
+    Station(StationId),
+}

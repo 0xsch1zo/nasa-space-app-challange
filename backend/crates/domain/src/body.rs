@@ -1,11 +1,12 @@
-//! Mapping of health data onto the human body (for the body visualisation).
+//! Mapping of health data onto the human body (for the body visualisations).
 
 use std::collections::BTreeMap;
 
 use crate::metrics::{HealthStatus, MetricCatalog, MetricCode, Reading};
 
-/// Anatomical regions the UI can highlight. Each metric component declares
-/// which region it belongs to; the body map is computed from that.
+/// Anatomical parts the UI can draw. Each metric component may declare the
+/// part it belongs to; body figures (muscles, bones, ...) are computed from that.
+/// Adding a part = a variant here + a shape in the frontend `BodyFigure`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BodyRegion {
     Head,
@@ -13,25 +14,39 @@ pub enum BodyRegion {
     Chest,
     Abdomen,
     Arms,
-    Spine,
-    Back,
-    Hips,
-    Thighs,
+    // muscles
+    Deltoids,
+    ErectorSpinae,
+    Gluteus,
+    Quadriceps,
+    Hamstrings,
     Calves,
+    // bones
+    LumbarSpine,
+    Pelvis,
+    FemoralNeck,
+    DistalTibia,
+    DistalRadius,
 }
 
 impl BodyRegion {
-    pub const ALL: [BodyRegion; 10] = [
+    pub const ALL: [BodyRegion; 16] = [
         BodyRegion::Head,
         BodyRegion::Heart,
         BodyRegion::Chest,
         BodyRegion::Abdomen,
         BodyRegion::Arms,
-        BodyRegion::Spine,
-        BodyRegion::Back,
-        BodyRegion::Hips,
-        BodyRegion::Thighs,
+        BodyRegion::Deltoids,
+        BodyRegion::ErectorSpinae,
+        BodyRegion::Gluteus,
+        BodyRegion::Quadriceps,
+        BodyRegion::Hamstrings,
         BodyRegion::Calves,
+        BodyRegion::LumbarSpine,
+        BodyRegion::Pelvis,
+        BodyRegion::FemoralNeck,
+        BodyRegion::DistalTibia,
+        BodyRegion::DistalRadius,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -41,11 +56,17 @@ impl BodyRegion {
             BodyRegion::Chest => "chest",
             BodyRegion::Abdomen => "abdomen",
             BodyRegion::Arms => "arms",
-            BodyRegion::Spine => "spine",
-            BodyRegion::Back => "back",
-            BodyRegion::Hips => "hips",
-            BodyRegion::Thighs => "thighs",
+            BodyRegion::Deltoids => "deltoids",
+            BodyRegion::ErectorSpinae => "erector_spinae",
+            BodyRegion::Gluteus => "gluteus",
+            BodyRegion::Quadriceps => "quadriceps",
+            BodyRegion::Hamstrings => "hamstrings",
             BodyRegion::Calves => "calves",
+            BodyRegion::LumbarSpine => "lumbar_spine",
+            BodyRegion::Pelvis => "pelvis",
+            BodyRegion::FemoralNeck => "femoral_neck",
+            BodyRegion::DistalTibia => "distal_tibia",
+            BodyRegion::DistalRadius => "distal_radius",
         }
     }
 }
@@ -75,18 +96,15 @@ pub fn body_map(catalog: &MetricCatalog, latest: &[(MetricCode, Reading)]) -> Ve
             continue;
         };
         for assessed in def.assess(reading).components {
-            let Some(component) = def.component(&assessed.key) else {
+            let Some(region) = def.component(&assessed.key).and_then(|c| c.body_region) else {
                 continue;
             };
-            regions
-                .entry(component.body_region)
-                .or_default()
-                .push(BodyFinding {
-                    metric: code.clone(),
-                    component: assessed.key,
-                    value: assessed.value,
-                    status: assessed.status,
-                });
+            regions.entry(region).or_default().push(BodyFinding {
+                metric: code.clone(),
+                component: assessed.key,
+                value: assessed.value,
+                status: assessed.status,
+            });
         }
     }
     BodyRegion::ALL

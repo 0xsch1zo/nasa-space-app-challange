@@ -2,8 +2,9 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::crew::{Astronaut, AstronautId, Station, StationId, User};
-use domain::metrics::{MetricCode, Reading, RecordedReading};
+use domain::crew::{Astronaut, AstronautId, Station, StationId, Subject, User};
+use domain::metrics::{MetricCode, MetricScope, Reading, RecordedReading};
+use domain::wellbeing::WellbeingNote;
 
 use crate::error::{AppError, InfraError};
 use crate::security::Principal;
@@ -47,7 +48,8 @@ pub struct TimeRange {
     pub to: Option<DateTime<Utc>>,
 }
 
-/// Storage of the per-(astronaut, metric) history aggregates.
+/// Storage of the per-(subject, metric) history aggregates, where the
+/// subject is an astronaut or (for environment metrics) a station.
 ///
 /// Generic over metrics on purpose: the adapter must not need changes when a
 /// metric is added.
@@ -55,15 +57,15 @@ pub struct TimeRange {
 pub trait MeasurementRepository: Send + Sync {
     /// Makes sure every metric has its storage (e.g. a table partition).
     /// Called at startup with the catalog's codes.
-    async fn ensure_storage(&self, metrics: &[MetricCode]) -> InfraResult<()>;
+    async fn ensure_storage(&self, metrics: &[(MetricCode, MetricScope)]) -> InfraResult<()>;
 
     /// Appends validated readings and refreshes the "latest value" projection.
     async fn append(&self, readings: &[RecordedReading]) -> InfraResult<u64>;
 
-    /// Latest reading of each metric for one astronaut.
-    async fn latest(&self, astronaut: AstronautId) -> InfraResult<Vec<(MetricCode, Reading)>>;
+    /// Latest reading of each metric of one subject.
+    async fn latest(&self, subject: Subject) -> InfraResult<Vec<(MetricCode, Reading)>>;
 
-    /// Latest reading of each metric for every astronaut on a station.
+    /// Latest reading of each astronaut-scoped metric for every astronaut on a station.
     async fn latest_for_station(
         &self,
         station: StationId,
@@ -72,11 +74,17 @@ pub trait MeasurementRepository: Send + Sync {
     /// Ordered time series, optionally averaged into buckets.
     async fn series(
         &self,
-        astronaut: AstronautId,
+        subject: Subject,
         metric: &MetricCode,
         range: TimeRange,
         bucket: Option<Bucket>,
     ) -> InfraResult<Vec<Reading>>;
+}
+
+/// Wellbeing notes are written by an external process; we only read them.
+#[async_trait]
+pub trait WellbeingRepository: Send + Sync {
+    async fn latest_note(&self, astronaut: AstronautId) -> InfraResult<Option<WellbeingNote>>;
 }
 
 pub trait PasswordHasher: Send + Sync {

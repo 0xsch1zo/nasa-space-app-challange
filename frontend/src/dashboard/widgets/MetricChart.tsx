@@ -27,18 +27,27 @@ export function MetricChart({
   metric,
   range,
   height = 220,
+  components,
+  compact = false,
 }: {
   astronautId: string;
   metric: MetricDefinition;
   range: RangeKey;
   height?: number;
+  /** Plot only these component keys (default: all measured components). */
+  components?: string[];
+  /** Small chart without legend and X axis, e.g. inside a tooltip. */
+  compact?: boolean;
 }) {
   const series = useSeries(astronautId, metric.code, seriesParams(metric, range));
+  const shown = metric.components.filter((c) =>
+    components ? components.includes(c.key) : !c.derived,
+  );
 
   const data =
     series.data?.points.map((p) => {
       const row: Record<string, string | number> = { t: fmtShort(p.t) };
-      for (const c of metric.components) {
+      for (const c of shown) {
         const v = p.values[c.key];
         if (v !== undefined) row[c.key] = Number(v.toFixed(c.decimals));
       }
@@ -49,8 +58,8 @@ export function MetricChart({
   // all components share one reference (otherwise the chart gets cluttered).
   const lines = new Map<number, { y: number; label: string; color: string }>();
   const sharedRef =
-    new Set(metric.components.map((c) => JSON.stringify(c.reference))).size === 1;
-  for (const c of metric.components) {
+    new Set(shown.map((c) => JSON.stringify(c.reference))).size === 1;
+  for (const c of shown) {
     for (const y of [c.reference.normal.min, c.reference.normal.max]) {
       if (y !== null && !lines.has(y)) lines.set(y, { y, label: `${y}`, color: 'yellow.6' });
     }
@@ -63,30 +72,37 @@ export function MetricChart({
 
   // Y axis with "nice" ticks that always shows data and reference lines.
   const values = data
-    .flatMap((r) => metric.components.map((c) => r[c.key]))
+    .flatMap((r) => shown.map((c) => r[c.key]))
     .filter((v): v is number => typeof v === 'number');
-  const { domain, ticks } = niceAxis([...values, ...lines.keys()]);
+  // Reference lines far from the data would flatten the curve (e.g. gravity
+  // ~1 µg vs a 100 µg limit); only lines near the data widen the axis.
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const reach = 2 * Math.max(hi - lo, Math.abs(hi + lo) * 0.05, 1e-6);
+  const near = [...lines.keys()].filter((y) => y >= lo - reach && y <= hi + reach);
+  const { domain, ticks } = niceAxis([...values, ...near]);
 
-  const decimals = Math.max(...metric.components.map((c) => c.decimals));
+  const decimals = Math.max(...shown.map((c) => c.decimals));
   const common = {
     h: height,
     data,
     dataKey: 't',
-    series: metric.components.map((c, i) => ({
+    series: shown.map((c, i) => ({
       name: c.key,
       label: c.label,
       color: PALETTE[i % PALETTE.length],
     })),
-    referenceLines: [...lines.values()],
-    withLegend: metric.components.length > 1,
+    referenceLines: [...lines.values()].filter((l) => near.includes(l.y)),
+    withLegend: !compact && shown.length > 1,
+    withXAxis: !compact,
     legendProps: {
       verticalAlign: 'bottom' as const,
       height: 40,
       // keep the order of components from the metric definition
       itemSorter: (item: { dataKey?: unknown }) =>
-        metric.components.findIndex((c) => c.key === item.dataKey),
+        shown.findIndex((c) => c.key === item.dataKey),
     },
-    valueFormatter: (v: number) => `${v.toFixed(decimals)} ${metric.components[0].unit}`,
+    valueFormatter: (v: number) => `${v.toFixed(decimals)} ${shown[0].unit}`,
     yAxisProps: { domain, ticks, width: 44, tickFormatter: (v: number) => `${Number(v.toFixed(3))}` },
     xAxisProps: { minTickGap: 24 },
     gridAxis: 'y' as const,
