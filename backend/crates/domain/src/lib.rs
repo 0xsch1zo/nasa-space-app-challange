@@ -5,9 +5,11 @@
 //! paths scattered across layers, so adding one is a single new file in
 //! [`metrics::definitions`] plus one line in [`metrics::MetricCatalog::builtin`].
 
+pub mod alerts;
 pub mod body;
 pub mod crew;
 pub mod error;
 pub mod metrics;
+pub mod wellbeing;
 
 pub use error::DomainError;

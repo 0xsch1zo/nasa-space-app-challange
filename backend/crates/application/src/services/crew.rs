@@ -1,21 +1,22 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use domain::alerts::AlertEngine;
 use domain::crew::{Astronaut, AstronautId};
 use domain::metrics::{HealthStatus, MetricCatalog, MetricCode, Reading};
 
-use super::Authorizer;
+use super::{Authorizer, SnapshotReader};
 use crate::error::{AppError, AppResult};
-use crate::ports::inbound::{CrewMemberSummary, CrewUseCase};
+use crate::ports::inbound::{AlertCounts, CrewMemberSummary, CrewUseCase};
 use crate::ports::outbound::{CrewRepository, MeasurementRepository};
 use crate::security::{AccessPolicy, Principal};
 
 pub struct CrewService {
     crew: Arc<dyn CrewRepository>,
-    measurements: Arc<dyn MeasurementRepository>,
+    snapshots: SnapshotReader,
     catalog: Arc<MetricCatalog>,
+    engine: Arc<AlertEngine>,
     authorizer: Authorizer,
 }
 
@@ -24,12 +25,15 @@ impl CrewService {
         crew: Arc<dyn CrewRepository>,
         measurements: Arc<dyn MeasurementRepository>,
         catalog: Arc<MetricCatalog>,
+        engine: Arc<AlertEngine>,
     ) -> Self {
         let authorizer = Authorizer::new(crew.clone());
+        let snapshots = SnapshotReader::new(measurements);
         Self {
             crew,
-            measurements,
+            snapshots,
             catalog,
+            engine,
             authorizer,
         }
     }
@@ -61,7 +65,9 @@ impl CrewService {
             .unwrap_or(HealthStatus::Unknown);
         let last_measurement_at: Option<DateTime<Utc>> =
             latest.iter().map(|(_, r)| r.recorded_at).max();
-        let mission_day = (Utc::now().date_naive() - astronaut.mission_start).num_days() + 1;
+        let now = Utc::now();
+        let mission_day = (now.date_naive() - astronaut.mission_start).num_days() + 1;
+        let alert_counts = AlertCounts::of(&self.engine.evaluate(&self.catalog, latest, now));
         CrewMemberSummary {
             astronaut,
             station,
@@ -69,6 +75,7 @@ impl CrewService {
             overall_status,
             last_measurement_at,
             metric_statuses,
+            alert_counts,
         }
     }
 }
@@ -85,17 +92,14 @@ impl CrewUseCase for CrewService {
             .await?
             .ok_or(AppError::NotFound("station"))?;
         let astronauts = self.crew.list_astronauts(principal.station_id).await?;
-        let mut latest: HashMap<AstronautId, Vec<(MetricCode, Reading)>> = HashMap::new();
-        for (id, code, reading) in self.measurements.latest_for_station(station.id).await? {
-            latest.entry(id).or_default().push((code, reading));
-        }
+        let snapshots = self.snapshots.for_station(station.id).await?;
         Ok(astronauts
             .into_iter()
             // Defence in depth: the repository is already station-scoped.
             .filter(|a| AccessPolicy::can_view(principal, a))
             .map(|a| {
-                let l = latest.remove(&a.id).unwrap_or_default();
-                self.summarize(a, station.clone(), &l)
+                let latest = snapshots.for_astronaut(a.id);
+                self.summarize(a, station.clone(), &latest)
             })
             .collect())
     }
@@ -111,7 +115,7 @@ impl CrewUseCase for CrewService {
             .find_station(astronaut.station_id)
             .await?
             .ok_or(AppError::NotFound("station"))?;
-        let latest = self.measurements.latest(id).await?;
+        let latest = self.snapshots.for_astronaut(&astronaut).await?;
         Ok(self.summarize(astronaut, station, &latest))
     }
 }

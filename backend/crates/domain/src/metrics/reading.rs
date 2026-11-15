@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 
-use super::definition::{HealthStatus, MetricCode, MetricDefinition};
-use crate::crew::AstronautId;
+use super::definition::{HealthStatus, MetricCode, MetricDefinition, MetricScope};
+use crate::crew::Subject;
 use crate::error::DomainError;
 
 /// A single point in a metric's history: component key → numeric value.
@@ -18,15 +18,15 @@ pub struct Reading {
 /// [`MetricHistory::record`], which enforces the metric's invariants.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedReading {
-    astronaut_id: AstronautId,
+    subject: Subject,
     metric: MetricCode,
     reading: Reading,
     source: String,
 }
 
 impl RecordedReading {
-    pub fn astronaut_id(&self) -> AstronautId {
-        self.astronaut_id
+    pub fn subject(&self) -> Subject {
+        self.subject
     }
     pub fn metric(&self) -> &MetricCode {
         &self.metric
@@ -39,7 +39,8 @@ impl RecordedReading {
     }
 }
 
-/// The historical aggregate of one health metric for one astronaut.
+/// The historical aggregate of one health metric for one subject
+/// (an astronaut, or a station for environment metrics).
 ///
 /// History is append-only and potentially long, so the aggregate is never
 /// loaded as a whole for writes: `record` validates a new reading against the
@@ -50,20 +51,37 @@ pub struct MetricHistory;
 impl MetricHistory {
     pub fn record(
         definition: &MetricDefinition,
-        astronaut_id: AstronautId,
-        reading: Reading,
+        subject: Subject,
+        mut reading: Reading,
         source: impl Into<String>,
     ) -> Result<RecordedReading, DomainError> {
         let metric = definition.code.as_str();
+        let scope_ok = matches!(
+            (definition.scope, subject),
+            (MetricScope::Astronaut, Subject::Astronaut(_))
+                | (MetricScope::Station, Subject::Station(_))
+        );
+        if !scope_ok {
+            return Err(DomainError::ScopeMismatch(metric.to_owned()));
+        }
         for key in reading.values.keys() {
-            if definition.component(key).is_none() {
-                return Err(DomainError::UnknownComponent {
-                    metric: metric.to_owned(),
-                    component: key.clone(),
-                });
+            match definition.component(key) {
+                None => {
+                    return Err(DomainError::UnknownComponent {
+                        metric: metric.to_owned(),
+                        component: key.clone(),
+                    })
+                }
+                Some(c) if c.derived => {
+                    return Err(DomainError::DerivedComponentProvided {
+                        metric: metric.to_owned(),
+                        component: key.clone(),
+                    })
+                }
+                Some(_) => {}
             }
         }
-        for c in &definition.components {
+        for c in definition.components.iter().filter(|c| !c.derived) {
             let value =
                 *reading
                     .values
@@ -82,8 +100,18 @@ impl MetricHistory {
                 });
             }
         }
+        // Derived components (e.g. the overall sleep score) are the sum of the
+        // per-component scores, computed here so every adapter gets them.
+        let score: f64 = definition
+            .components
+            .iter()
+            .filter_map(|c| Some(c.score?.points(*reading.values.get(&c.key)?)))
+            .sum();
+        for c in definition.components.iter().filter(|c| c.derived) {
+            reading.values.insert(c.key.clone(), score.round());
+        }
         Ok(RecordedReading {
-            astronaut_id,
+            subject,
             metric: definition.code.clone(),
             reading,
             source: source.into(),
@@ -105,8 +133,10 @@ pub struct Assessment {
 }
 
 impl MetricDefinition {
-    /// Classifies every component of a reading and the reading as a whole
-    /// (worst component wins).
+    /// Classifies every component of a reading and the reading as a whole.
+    /// The overall status is the worst of the components covered by the
+    /// metric's alert policy (e.g. only the sleep score), so the headline
+    /// status and the alerts always agree.
     pub fn assess(&self, reading: &Reading) -> Assessment {
         let components: Vec<_> = self
             .components
@@ -124,6 +154,7 @@ impl MetricDefinition {
             .collect();
         let status = components
             .iter()
+            .filter(|c| self.alert_policy.covers(&c.key))
             .map(|c| c.status)
             .max()
             .unwrap_or(HealthStatus::Unknown);
@@ -147,7 +178,7 @@ mod tests {
     fn rejects_missing_unknown_and_implausible_components() {
         let catalog = MetricCatalog::builtin();
         let bp = catalog.get_str("blood_pressure").unwrap();
-        let id = AstronautId::new();
+        let id = Subject::Astronaut(crate::crew::AstronautId::new());
 
         assert!(MetricHistory::record(bp, id, reading(&[("systolic", 120.0)]), "t").is_err());
         assert!(MetricHistory::record(
@@ -180,6 +211,38 @@ mod tests {
         let a = bp.assess(&reading(&[("systolic", 118.0), ("diastolic", 95.0)]));
         assert_eq!(a.components[0].status, HealthStatus::Normal);
         assert!(a.status > HealthStatus::Normal);
+    }
+
+    #[test]
+    fn derived_score_is_computed_and_cannot_be_sent() {
+        let catalog = MetricCatalog::builtin();
+        let sleep = catalog.get_str("sleep").unwrap();
+        let id = Subject::Astronaut(crate::crew::AstronautId::new());
+        let good = reading(&[
+            ("total_sleep", 8.0),
+            ("efficiency", 95.0),
+            ("deep_sleep", 20.0),
+            ("rem_sleep", 23.0),
+            ("latency", 5.0),
+            ("awakenings", 0.0),
+        ]);
+        let r = MetricHistory::record(sleep, id, good.clone(), "t").unwrap();
+        assert_eq!(r.reading().values["score"], 100.0);
+
+        let mut forged = good;
+        forged.values.insert("score".into(), 100.0);
+        assert!(MetricHistory::record(sleep, id, forged, "t").is_err());
+    }
+
+    #[test]
+    fn scope_must_match_subject() {
+        let catalog = MetricCatalog::builtin();
+        let radiation = catalog.get_str("radiation").unwrap();
+        let astronaut = Subject::Astronaut(crate::crew::AstronautId::new());
+        let r = reading(&[("dose_rate", 0.4)]);
+        assert!(MetricHistory::record(radiation, astronaut, r.clone(), "t").is_err());
+        let station = Subject::Station(crate::crew::StationId::new());
+        assert!(MetricHistory::record(radiation, station, r, "t").is_ok());
     }
 
     #[test]

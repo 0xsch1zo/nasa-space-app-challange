@@ -8,6 +8,10 @@ pub enum DomainError {
     InvalidMetricCode(String),
     #[error("metric `{metric}`: missing component `{component}`")]
     MissingComponent { metric: String, component: String },
+    #[error("metric `{metric}`: component `{component}` is computed and must not be sent")]
+    DerivedComponentProvided { metric: String, component: String },
+    #[error("metric `{0}` is recorded for a different subject (astronaut vs station)")]
+    ScopeMismatch(String),
     #[error("metric `{metric}`: unknown component `{component}`")]
     UnknownComponent { metric: String, component: String },
     #[error("metric `{metric}`: value {value} of `{component}` is outside the plausible range [{min}, {max}]")]

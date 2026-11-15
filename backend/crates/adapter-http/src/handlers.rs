@@ -88,3 +88,35 @@ pub async fn series(
     };
     Ok(Json(s.health.series(&p, query).await?.into()))
 }
+
+pub async fn metric_groups(
+    State(s): State<AppState>,
+    Auth(_): Auth,
+) -> ApiResult<Vec<MetricGroupDto>> {
+    Ok(Json(
+        s.health.catalog().groups().iter().map(Into::into).collect(),
+    ))
+}
+
+pub async fn alerts(
+    State(s): State<AppState>,
+    Auth(p): Auth,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Vec<AlertDto>> {
+    let alerts = s.alerts.alerts(&p, AstronautId(id)).await?;
+    Ok(Json(alerts.into_iter().map(Into::into).collect()))
+}
+
+/// `null` when no note has been written yet.
+pub async fn wellbeing_note(
+    State(s): State<AppState>,
+    Auth(p): Auth,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Option<WellbeingNoteDto>> {
+    Ok(Json(
+        s.wellbeing
+            .latest_note(&p, AstronautId(id))
+            .await?
+            .map(Into::into),
+    ))
+}

@@ -14,10 +14,13 @@ services:
       retries: 30
 
   # One-shot: runs migrations, creates per-metric partitions and loads demo
-  # data through the device-ingestion port. Skips if data already exists.
+  # data through the device-ingestion port. `--reset` regenerates the demo
+  # data on every start so its timeline always ends "now" (otherwise the
+  # overdue-measurement alerts would fire a few days after seeding).
+  # Remove `--reset` to keep data between restarts.
   seed:
     build: ./backend
-    command: ["seed"]
+    command: ["seed", "--reset"]
     environment: &backend-env
       DATABASE_URL: postgres://astro:astro@db:5432/astro_health
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-please}

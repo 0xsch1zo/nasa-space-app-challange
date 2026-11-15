@@ -1,24 +1,32 @@
-import { Group, Paper, SimpleGrid, Table, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { Badge, Group, Paper, SimpleGrid, Table, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconChevronRight } from '@tabler/icons-react';
-import type { CrewMember, HealthStatus, MetricDefinition } from '../api/types';
+import type { CrewMember, HealthStatus, MetricDefinition, MetricGroup } from '../api/types';
 import { fromNow } from '../lib/dates';
-import { statusColor, statusLabel, statusRank } from '../lib/status';
+import { severityColor, statusColor, statusLabel, statusRank, worstStatus } from '../lib/status';
 import { StatusBadge } from './StatusBadge';
 
-/** Crew list for supervisors. Metric columns come from the catalog. */
+/**
+ * Crew list for supervisors. One status column per dashboard tab (worst
+ * metric of the group) instead of one per metric keeps the table readable
+ * as parameters are added.
+ */
 export function CrewTable({
   crew,
   catalog,
+  groups,
   onOpen,
 }: {
   crew: CrewMember[];
   catalog: MetricDefinition[];
+  groups: MetricGroup[];
   onOpen: (member: CrewMember) => void;
 }) {
   const sorted = [...crew].sort(
     (a, b) => statusRank[b.overallStatus] - statusRank[a.overallStatus] || a.fullName.localeCompare(b.fullName),
   );
   const count = (s: HealthStatus) => crew.filter((c) => c.overallStatus === s).length;
+  const groupStatus = (c: CrewMember, group: string) =>
+    worstStatus(catalog.filter((m) => m.group === group).map((m) => c.metricStatuses[m.code] ?? 'unknown'));
 
   return (
     <>
@@ -36,9 +44,10 @@ export function CrewTable({
               <Table.Tr>
                 <Table.Th>Astronauta</Table.Th>
                 <Table.Th>Dzień misji</Table.Th>
-                {catalog.map((m) => (
-                  <Table.Th key={m.code}>{m.name}</Table.Th>
+                {groups.map((g) => (
+                  <Table.Th key={g.code}>{g.name}</Table.Th>
                 ))}
+                <Table.Th>Alerty</Table.Th>
                 <Table.Th>Stan ogólny</Table.Th>
                 <Table.Th>Ostatni pomiar</Table.Th>
                 <Table.Th />
@@ -56,11 +65,27 @@ export function CrewTable({
                     </UnstyledButton>
                   </Table.Td>
                   <Table.Td>{c.missionDay}</Table.Td>
-                  {catalog.map((m) => (
-                    <Table.Td key={m.code}>
-                      <StatusBadge status={c.metricStatuses[m.code] ?? 'unknown'} size="sm" />
+                  {groups.map((g) => (
+                    <Table.Td key={g.code}>
+                      <StatusBadge status={groupStatus(c, g.code)} size="sm" />
                     </Table.Td>
                   ))}
+                  <Table.Td>
+                    <Group gap={4} wrap="nowrap">
+                      {(['critical', 'warning', 'notice'] as const).map((s) =>
+                        c.alerts[s] > 0 ? (
+                          <Badge key={s} color={severityColor[s]} variant={s === 'notice' ? 'light' : 'filled'} size="sm" circle>
+                            {c.alerts[s]}
+                          </Badge>
+                        ) : null,
+                      )}
+                      {c.alerts.critical + c.alerts.warning + c.alerts.notice === 0 && (
+                        <Text size="sm" c="dimmed">
+                          brak
+                        </Text>
+                      )}
+                    </Group>
+                  </Table.Td>
                   <Table.Td>
                     <StatusBadge status={c.overallStatus} variant="filled" />
                   </Table.Td>

@@ -8,6 +8,7 @@ pub fn definition() -> MetricDefinition {
         .description("Spoczynkowe ciśnienie tętnicze mierzone rano mankietem.")
         .chart(ChartKind::Line)
         .sampling_hours(24)
+        .group("physiology")
         .component(ComponentDefinition::new(
             "systolic",
             "Skurczowe",

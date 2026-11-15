@@ -16,7 +16,7 @@ export function WidgetCard({
   return (
     <Paper withBorder p="md" h="100%">
       <Group justify="space-between" align="flex-start" mb="sm" wrap="nowrap">
-        <div>
+        <div style={{ minWidth: 0 }}>
           <Text fw={700}>{title}</Text>
           {subtitle && (
             <Text size="xs" c="dimmed">
@@ -24,7 +24,7 @@ export function WidgetCard({
             </Text>
           )}
         </div>
-        {right}
+        {right && <div style={{ flexShrink: 0 }}>{right}</div>}
       </Group>
       {children}
     </Paper>

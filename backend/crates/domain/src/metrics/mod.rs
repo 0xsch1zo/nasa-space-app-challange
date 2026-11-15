@@ -8,8 +8,10 @@
 mod catalog;
 mod definition;
 pub mod definitions;
+mod group;
 mod reading;
 
 pub use catalog::MetricCatalog;
 pub use definition::*;
+pub use group::MetricGroup;
 pub use reading::*;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use domain::crew::AstronautId;
+use domain::crew::Subject;
 use domain::metrics::{MetricCatalog, MetricHistory, Reading};
 
 use crate::error::AppResult;
@@ -35,28 +35,31 @@ impl IngestionService {
 impl MeasurementIngestion for IngestionService {
     async fn ingest(&self, batch: Vec<DeviceMeasurement>) -> AppResult<IngestReport> {
         let mut report = IngestReport::default();
-        let mut known: HashMap<AstronautId, bool> = HashMap::new();
+        let mut known: HashMap<Subject, bool> = HashMap::new();
         let mut accepted = Vec::with_capacity(batch.len());
 
         for (idx, m) in batch.into_iter().enumerate() {
-            let exists = match known.get(&m.astronaut_id) {
+            let exists = match known.get(&m.subject) {
                 Some(e) => *e,
                 None => {
-                    let e = self.crew.find_astronaut(m.astronaut_id).await?.is_some();
-                    known.insert(m.astronaut_id, e);
+                    let e = match m.subject {
+                        Subject::Astronaut(id) => self.crew.find_astronaut(id).await?.is_some(),
+                        Subject::Station(id) => self.crew.find_station(id).await?.is_some(),
+                    };
+                    known.insert(m.subject, e);
                     e
                 }
             };
             if !exists {
                 report
                     .rejected
-                    .push((idx, format!("unknown astronaut {}", m.astronaut_id)));
+                    .push((idx, format!("unknown subject {:?}", m.subject)));
                 continue;
             }
             let recorded = self.catalog.resolve(&m.metric).and_then(|def| {
                 MetricHistory::record(
                     def,
-                    m.astronaut_id,
+                    m.subject,
                     Reading {
                         recorded_at: m.recorded_at,
                         values: m.values,

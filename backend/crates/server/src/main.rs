@@ -13,6 +13,8 @@ async fn main() -> anyhow::Result<()> {
         auth: container.auth,
         crew: container.crew,
         health: container.health,
+        alerts: container.alerts,
+        wellbeing: container.wellbeing,
     };
     let app = router(state, &config.cors_origins);
 

@@ -4,11 +4,13 @@ mod crew;
 mod measurements;
 mod seed;
 mod users;
+mod wellbeing;
 
 pub use crew::PgCrewRepository;
 pub use measurements::PgMeasurementRepository;
 pub use seed::PgSeedWriter;
 pub use users::PgUserRepository;
+pub use wellbeing::PgWellbeingRepository;
 
 use application::error::InfraError;
 use sqlx::postgres::PgPoolOptions;

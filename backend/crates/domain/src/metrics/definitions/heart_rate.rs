@@ -7,6 +7,7 @@ pub fn definition() -> MetricDefinition {
         .description("Spoczynkowa częstość akcji serca mierzona rano przez opaskę.")
         .chart(ChartKind::Line)
         .sampling_hours(24)
+        .group("physiology")
         .component(ComponentDefinition::new(
             "resting",
             "Tętno",
@@ -16,7 +17,12 @@ pub fn definition() -> MetricDefinition {
             Bounds::between(50.0, 90.0),
             Bounds::between(45.0, 100.0),
             0,
-            DemoSignal { baseline: 62.0, spread: 5.0, drift_per_day: 0.02, noise: 3.0 },
+            DemoSignal {
+                baseline: 62.0,
+                spread: 5.0,
+                drift_per_day: 0.02,
+                noise: 3.0,
+            },
         ))
         .build()
 }

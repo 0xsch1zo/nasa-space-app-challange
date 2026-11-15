@@ -2,7 +2,7 @@
 //! Health measurements are NOT written here: they go through the
 //! `MeasurementIngestion` port like real device data would.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -25,7 +25,8 @@ impl PgSeedWriter {
 
     pub async fn reset(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "TRUNCATE latest_measurements, measurements, users, astronauts, stations CASCADE",
+            "TRUNCATE wellbeing_notes, latest_station_measurements, station_measurements, \
+             latest_measurements, measurements, users, astronauts, stations CASCADE",
         )
         .execute(&self.pool)
         .await?;
@@ -86,6 +87,24 @@ impl PgSeedWriter {
         .bind(role)
         .bind(station)
         .bind(astronaut)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Stands in for the external wellbeing-note generator.
+    pub async fn wellbeing_note(
+        &self,
+        astronaut: Uuid,
+        written_at: DateTime<Utc>,
+        body: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO wellbeing_notes (astronaut_id, written_at, body) VALUES ($1, $2, $3)",
+        )
+        .bind(astronaut)
+        .bind(written_at)
+        .bind(body)
         .execute(&self.pool)
         .await?;
         Ok(())
