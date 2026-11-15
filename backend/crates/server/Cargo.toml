@@ -14,6 +14,7 @@ adapter-http.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
+dotenvy.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 tokio.workspace = true

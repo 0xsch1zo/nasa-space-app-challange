@@ -1,0 +1,32 @@
+{
+  "name": "astro-health",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AstroHealth: Rust API (backend/) + React dashboard (frontend/), run natively with npm.",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix frontend install && node scripts/check-prereqs.mjs",
+    "doctor": "node scripts/check-prereqs.mjs",
+    "db:create": "psql -d postgres -v ON_ERROR_STOP=1 -f scripts/create-db.sql",
+    "db:seed": "cargo run --manifest-path backend/Cargo.toml --bin seed -- --reset",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cargo build --release --manifest-path backend/Cargo.toml --bins",
+    "build:frontend": "npm --prefix frontend run build",
+    "prestart": "npm run build && cargo run --release --manifest-path backend/Cargo.toml --bin seed -- --reset",
+    "start": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:start:backend\" \"npm:start:frontend\"",
+    "start:backend": "cargo run --release --manifest-path backend/Cargo.toml --bin server",
+    "start:frontend": "npm --prefix frontend run preview",
+    "predev": "npm run db:seed",
+    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "cargo run --manifest-path backend/Cargo.toml --bin server",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cargo test --manifest-path backend/Cargo.toml",
+    "test:frontend": "npm --prefix frontend test"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1"
+  }
+}
