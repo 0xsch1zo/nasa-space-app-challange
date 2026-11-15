@@ -1,58 +1,72 @@
-import { Group, Paper, Stack, Table, Text, UnstyledButton } from '@mantine/core';
+import { Badge, Group, Paper, Stack, Table, Text, UnstyledButton } from '@mantine/core';
 import { IconChevronRight } from '@tabler/icons-react';
 import type { Alert } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { fromNow } from '../lib/dates';
-import { formatBounds, severityColor } from '../lib/status';
+import { formatBounds, severityColor, severityLabel } from '../lib/status';
 import { SeverityIcon } from './SeverityIcon';
 
 /**
  * One alert. The whole row is a link to the full report of the parameter
- * (its tab, scrolled to its chart / body map).
+ * (its tab, scrolled to its chart / lab table / body map).
+ *
+ * `size="lg"` is the full-width banner at the top of a profile; `"md"` is
+ * the compact row used in the alerts list.
  */
 export function AlertItem({
   alert,
   groupName,
   onOpen,
   detailed = false,
+  size = 'md',
 }: {
   alert: Alert;
   groupName: string;
   onOpen: (alert: Alert) => void;
   detailed?: boolean;
+  size?: 'md' | 'lg';
 }) {
+  const lg = size === 'lg';
+  const color = severityColor[alert.severity];
   return (
     <Paper
       withBorder
-      style={{ borderLeft: `4px solid var(--mantine-color-${severityColor[alert.severity]}-6)` }}
+      radius="md"
+      bg={lg ? `var(--mantine-color-${color}-light)` : undefined}
+      style={{ borderLeft: `6px solid var(--mantine-color-${color}-6)` }}
     >
       <UnstyledButton
         onClick={() => onOpen(alert)}
-        p="sm"
+        p={lg ? 'md' : 'sm'}
         w="100%"
         aria-label={`${alert.title}: otwórz raport`}
       >
-        <Group wrap="nowrap" gap="sm">
-          <SeverityIcon severity={alert.severity} />
-          <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-            <Text fw={700} size="sm">
-              {alert.title}
-            </Text>
-            <Text size="sm" c="dimmed">
+        <Group wrap="nowrap" gap={lg ? 'md' : 'sm'}>
+          <SeverityIcon severity={alert.severity} size={lg ? 44 : 34} />
+          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+            <Group gap="xs" wrap="nowrap">
+              <Badge color={color} variant={alert.severity === 'notice' ? 'light' : 'filled'} size={lg ? 'md' : 'sm'}>
+                {severityLabel[alert.severity]}
+              </Badge>
+              <Text fw={800} size={lg ? 'lg' : 'sm'} lineClamp={1}>
+                {alert.title}
+              </Text>
+            </Group>
+            <Text size={lg ? 'md' : 'sm'} c={lg ? undefined : 'dimmed'}>
               {alert.message}
             </Text>
           </Stack>
-          <Stack gap={0} align="flex-end" visibleFrom="sm" style={{ flexShrink: 0 }}>
-            <Text size="xs" c="dimmed">
-              {groupName}
+          <Stack gap={2} align="flex-end" visibleFrom="sm" style={{ flexShrink: 0 }}>
+            <Text size="sm" fw={600} c={`${color}.5`}>
+              Zobacz raport: {groupName}
             </Text>
             {alert.recordedAt && (
               <Text size="xs" c="dimmed">
-                {fromNow(alert.recordedAt)}
+                pomiar {fromNow(alert.recordedAt)}
               </Text>
             )}
           </Stack>
-          <IconChevronRight size={18} style={{ flexShrink: 0 }} />
+          <IconChevronRight size={lg ? 22 : 18} style={{ flexShrink: 0 }} />
         </Group>
       </UnstyledButton>
       {detailed && alert.findings.length > 0 && (
