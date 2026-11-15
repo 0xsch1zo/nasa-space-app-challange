@@ -1,4 +1,5 @@
 import { Badge, Group, Table, Text } from '@mantine/core';
+import { useSeries } from '../../api/hooks';
 import { IconCalendarDue } from '@tabler/icons-react';
 import { StatusBadge } from '../../components/StatusBadge';
 import { dayjs, fmtDate } from '../../lib/dates';
@@ -10,9 +11,14 @@ import { SnapshotBadge } from './MetricChartWidget';
 
 /**
  * Surface sampling campaigns: results of the latest swab per location, the
- * sampling schedule (next due / overdue) and the history of results.
+ * sampling schedule (next due / overdue), the most recent campaigns and the
+ * history chart.
  */
+const RECENT = 5;
+
 export function SamplingWidget({ ctx, metric, snapshot }: MetricWidgetProps) {
+  const history = useSeries(ctx.astronautId, metric.code, {});
+  const recent = [...(history.data?.points ?? [])].reverse().slice(0, RECENT);
   const last = snapshot?.recordedAt ? dayjs(snapshot.recordedAt) : null;
   const next = last?.add(metric.samplingIntervalHours, 'hour');
   const overdue = !!next && next.isBefore(dayjs());
@@ -58,6 +64,41 @@ export function SamplingWidget({ ctx, metric, snapshot }: MetricWidgetProps) {
           ))}
         </Table.Tbody>
       </Table>
+      {recent.length > 1 && (
+        <>
+          <Text size="sm" fw={600} mb={4}>
+            Ostatnie pobrania
+          </Text>
+          <Table.ScrollContainer minWidth={420}>
+            <Table fz="xs" verticalSpacing={2} mb="sm" withColumnBorders={false}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Data</Table.Th>
+                  {metric.components.map((c) => (
+                    <Table.Th key={c.key}>{c.label}</Table.Th>
+                  ))}
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {recent.map((p) => (
+                  <Table.Tr key={p.t}>
+                    <Table.Td>{fmtDate(p.t)}</Table.Td>
+                    {metric.components.map((c) => (
+                      <Table.Td key={c.key} c={p.statuses[c.key] === 'normal' ? undefined : 'orange'}>
+                        {p.values[c.key]?.toFixed(c.decimals) ?? '—'}
+                      </Table.Td>
+                    ))}
+                    <Table.Td>
+                      <StatusBadge status={p.status} size="xs" />
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </>
+      )}
       <MetricChart astronautId={ctx.astronautId} metric={metric} range={ctx.range} height={180} />
     </WidgetCard>
   );

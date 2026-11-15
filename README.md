@@ -1,8 +1,9 @@
 # AstroHealth — dashboard zdrowia załogi stacji kosmicznej
 
 Full-stackowy dashboard, który przystępnie prezentuje parametry życiowe astronautów bez
-przeładowywania ich informacjami. Na górze profilu wyświetlają się alerty. Parametry są
-pogrupowane w zakładki: **Środowisko**, **Parametry fizjologiczne** i **Samopoczucie**.
+przeładowywania ich informacjami. Na górze panelu astronauty wyświetlają się alerty na całą
+szerokość. Parametry są pogrupowane w zakładki w **bocznym pasku nawigacji**:
+**Środowisko zewnętrzne**, **Parametry fizjologiczne** i **Samopoczucie**.
 
 * **Backend:** Rust, architektura heksagonalna (porty i adaptery), workspace z osobnymi crate'ami.
 * **Frontend:** React + TypeScript, Mantine.
@@ -12,9 +13,13 @@ definicją), a nie kodem rozrzuconym po warstwach. Z definicji wynikają: walida
 alerty, partycja w bazie, zakładka i widget. Szczegóły w sekcjach
 [Jak dodać nowy parametr](#jak-dodać-nowy-parametr-zdrowotny) i [Jak dodać zakładkę](#jak-dodać-zakładkę).
 
-| Profil astronauty: alerty i zakładka domyślna | Zakładka „Samopoczucie” |
+| Profil astronauty: pasek boczny, alerty i zakładka domyślna | Zakładka „Samopoczucie” |
 |---|---|
 | ![profil](docs/profile.png) | ![samopoczucie](docs/wellbeing.png) |
+
+| Zakładka „Środowisko zewnętrzne” |
+|---|
+| ![środowisko](docs/environment.png) |
 
 ![załoga](docs/crew.png)
 
@@ -76,8 +81,10 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
 
 ## Co widzi użytkownik
 
-### Alerty na górze profilu
+### Alerty na górze panelu
 
+* Alerty to **duże banery na całą szerokość treści**, nad nagłówkiem astronauty i nad treścią
+  każdej zakładki. Są widoczne niezależnie od tego, która zakładka jest aktywna.
 * Alerty dotyczą parametrów spoza normy i są **posortowane od krytycznych, przez ostrzeżenia,
   do wartych uwagi** (np. zaległy pomiar).
 * Każdy alert ma **ikonę ważności**: ośmiokąt dla krytycznego, trójkąt dla ostrzeżenia,
@@ -95,11 +102,16 @@ Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (48
   („oraz 4 inne wyniki poza normą”). Szczegóły są w zakładce Alerty. Dzięki temu np. 6 mięśni
   nie generuje 6 alertów.
 
-### Zakładki
+### Zakładki w bocznym pasku
+
+Zakładki są w pasku po lewej stronie (`ProfileSidebar`). Przy każdej jest najgorszy status
+jej parametrów, a przy „Alertach” liczba alertów. Na telefonie pasek chowa się pod ikoną menu.
+Pasek jest widoczny tylko w profilu astronauty (także w karcie otwartej przez nadzór), nie na
+liście załogi.
 
 | Zakładka | Parametry | Widget |
 |---|---|---|
-| **Środowisko** | jakość powietrza (mikroby szkodliwe, CFU/m³), próbki z powierzchni stacji (CFU/100 cm², harmonogram pobrań), promieniowanie (mSv/doba), natężenie pola grawitacyjnego (µg) | wykresy; próbki: tabela ostatniego pobrania, termin następnego, historia |
+| **Środowisko zewnętrzne** | jakość powietrza (mikroby szkodliwe, CFU/m³), próbki z powierzchni stacji (CFU/100 cm², harmonogram pobrań), promieniowanie (mSv/doba), natężenie pola grawitacyjnego (µg) | wykresy z trendem; próbki: wyniki ostatniego pobrania, termin następnego, tabela 5 ostatnich pobrań, historia |
 | **Parametry fizjologiczne** *(domyślna)* | tętno, temperatura ciała, ciśnienie, zanik mięśni, zanik kości, badanie krwi, badanie moczu | wykresy; mięśnie i kości na sylwetce; badania jako tabele |
 | **Samopoczucie** | stan psychiczny (notka), sen | łagodna notka; wykres punktacji snu i raport z ostatniej nocy |
 | **Alerty** | wszystkie alerty | lista pogrupowana według ważności |
@@ -318,7 +330,9 @@ wymaga wariantu `BodyRegion` i kształtu w `PARTS` (`BodyFigure.tsx`).
 ## Jak dodać zakładkę
 
 Jedna linia `MetricGroup::new("kod", "Nazwa", "opis")` w `MetricCatalog::builtin()`, a potem
-`.group("kod")` w definicjach parametrów. Frontend tworzy zakładki z `/api/metric-groups`.
+`.group("kod")` w definicjach parametrów. Frontend tworzy wpisy bocznego paska i panele
+z `/api/metric-groups`. Ikonę dla nowej zakładki można dodać w `GROUP_ICONS`
+(`ProfileSidebar.tsx`); bez niej używana jest ikona ogólna.
 Moduły niezwiązane z jednym parametrem (jak notka o samopoczuciu) dopisuje się
 w `groupWidgets` w rejestrze.
 

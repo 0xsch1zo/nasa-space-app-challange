@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Grid, Group, SegmentedControl, Tabs, Text } from '@mantine/core';
-import { IconBell } from '@tabler/icons-react';
+import { Grid, Group, SegmentedControl, Text, Title } from '@mantine/core';
 import type { Alert, MetricDefinition, MetricGroup, Overview } from '../api/types';
 import { AlertsPanel } from '../alerts/AlertsPanel';
 import { widgetsForGroup } from './registry';
@@ -9,8 +8,9 @@ import type { DashboardContext, Focus, RangeKey } from './types';
 export const ALERTS_TAB = 'alerts';
 
 /**
- * Health profile body: one tab per metric group (from the backend catalog)
- * plus a tab listing every alert.
+ * Health profile body: the panel of the selected tab. Tabs themselves are
+ * chosen in the side bar (`ProfileSidebar`); one panel per metric group
+ * (from the backend catalog) plus the panel listing every alert.
  */
 export function ProfileTabs({
   astronautId,
@@ -19,7 +19,6 @@ export function ProfileTabs({
   groups,
   alerts,
   tab,
-  onTabChange,
   focus,
   onOpenAlert,
 }: {
@@ -29,15 +28,13 @@ export function ProfileTabs({
   groups: MetricGroup[];
   alerts: Alert[];
   tab: string;
-  onTabChange: (tab: string) => void;
   focus: Focus | null;
   onOpenAlert: (alert: Alert) => void;
 }) {
   const [range, setRange] = useState<RangeKey>('90d');
   const ctx: DashboardContext = { astronautId, overview, catalog, range, focus };
-  const urgent = alerts.filter((a) => a.severity !== 'notice').length;
 
-  // Bring the alert's target into view once its tab has rendered.
+  // Bring the alert's target into view once its panel has rendered.
   useEffect(() => {
     if (!focus) return;
     const id = requestAnimationFrame(() =>
@@ -46,39 +43,18 @@ export function ProfileTabs({
     return () => cancelAnimationFrame(id);
   }, [focus, tab]);
 
-  return (
-    <Tabs value={tab} onChange={(v) => v && onTabChange(v)} keepMounted={false} variant="outline">
-      <Tabs.List mb="md">
-        {groups.map((g) => (
-          <Tabs.Tab key={g.code} value={g.code}>
-            {g.name}
-          </Tabs.Tab>
-        ))}
-        <Tabs.Tab
-          value={ALERTS_TAB}
-          leftSection={<IconBell size={16} />}
-          rightSection={
-            alerts.length > 0 ? (
-              <Badge size="sm" circle={alerts.length < 10} color={urgent > 0 ? 'red' : 'blue'}>
-                {alerts.length}
-              </Badge>
-            ) : null
-          }
-        >
+  if (tab === ALERTS_TAB) {
+    return (
+      <>
+        <Title order={3} mb="md">
           Alerty
-        </Tabs.Tab>
-      </Tabs.List>
-
-      {groups.map((g) => (
-        <Tabs.Panel key={g.code} value={g.code}>
-          <GroupPanel group={g} ctx={ctx} onRangeChange={setRange} />
-        </Tabs.Panel>
-      ))}
-      <Tabs.Panel value={ALERTS_TAB}>
+        </Title>
         <AlertsPanel alerts={alerts} groups={groups} onOpenAlert={onOpenAlert} />
-      </Tabs.Panel>
-    </Tabs>
-  );
+      </>
+    );
+  }
+  const group = groups.find((g) => g.code === tab);
+  return group ? <GroupPanel group={group} ctx={ctx} onRangeChange={setRange} /> : null;
 }
 
 function GroupPanel({
@@ -93,10 +69,13 @@ function GroupPanel({
   const widgets = useMemo(() => widgetsForGroup(group.code, ctx.catalog), [group.code, ctx.catalog]);
   return (
     <>
-      <Group justify="space-between" mb="sm" gap="xs">
-        <Text size="sm" c="dimmed">
-          {group.description}
-        </Text>
+      <Group justify="space-between" mb="md" gap="xs" align="flex-end">
+        <div>
+          <Title order={3}>{group.name}</Title>
+          <Text size="sm" c="dimmed">
+            {group.description}
+          </Text>
+        </div>
         {widgets.some((w) => w.usesRange) && (
           <SegmentedControl
             size="xs"
