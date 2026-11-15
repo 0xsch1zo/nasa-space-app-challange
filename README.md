@@ -27,21 +27,88 @@ alerty, partycja w bazie, zakładka i widget. Szczegóły w sekcjach
 
 ## Szybki start
 
+Projekt działa natywnie, bez kontenerów. Całą pracę wykonują skrypty npm z katalogu głównego.
+
+### Wymagania (instalowane osobno)
+
+Te narzędzia dostarczał wcześniej Docker. Teraz są **zewnętrznymi wymaganiami**, które trzeba
+zainstalować samodzielnie; `npm install` sprawdza je i wypisuje, czego brakuje
+(`npm run doctor` robi to samo w dowolnym momencie).
+
+| Narzędzie | Wersja | Do czego | Instalacja |
+|---|---|---|---|
+| Node.js + npm | 22.x (`.nvmrc`, `engines`) | frontend, skrypty | `nvm install && nvm use` albo https://nodejs.org |
+| Rust (cargo) | ≥ 1.89 (wcześniej obraz `rust:1.94`) | backend API i seeder | https://rustup.rs |
+| PostgreSQL | 16 (serwer + `psql`) | baza danych, port 5432 | macOS: `brew install postgresql@16 && brew services start postgresql@16`; Debian/Ubuntu: `sudo apt install postgresql-16` (repozytorium PGDG, jeśli dystrybucja ma starszą wersję); Windows: instalator z https://www.postgresql.org/download/ |
+
+### Pierwsze uruchomienie
+
 ```bash
-docker compose up --build
+nvm use                 # Node 22 z .nvmrc (opcjonalnie)
+npm install             # zależności roota i frontendu + sprawdzenie wymagań
+cp .env.example .env    # konfiguracja (nazwy zmiennych jak dotąd)
+npm run db:create       # rola astro/astro i baza astro_health (jako superużytkownik Postgresa)
+npm start               # build, dane demo, API + frontend → http://localhost:3000
 ```
+
+`npm run db:create` łączy się z bazą `postgres` jako bieżący użytkownik systemu. Jeśli
+superużytkownik ma inną nazwę lub hasło, ustaw zmienne `libpq`, np.
+`PGUSER=postgres PGHOST=localhost npm run db:create` (na Linuksie często
+`sudo -u postgres psql -f scripts/create-db.sql`). Skrypt jest idempotentny.
+
+### Skrypty npm
+
+| Skrypt | Co robi |
+|---|---|
+| `npm install` | instaluje zależności roota i `frontend/`, sprawdza wymagania |
+| `npm start` | `build` → dane demo (`seed --reset`) → API (release) na :8080 + frontend (Vite preview) na **:3000** |
+| `npm run dev` | dane demo → API (debug) na :8080 + Vite z hot reload na **:5173** |
+| `npm run build` | `cargo build --release` (server, seed) + build produkcyjny frontendu (`frontend/dist`) |
+| `npm test` | `cargo test` backendu + Vitest frontendu |
+| `npm run db:create` | tworzy rolę i bazę w lokalnym Postgresie |
+| `npm run db:seed` | migracje, partycje i dane demo od nowa (`seed --reset`) |
+| `npm run doctor` | sprawdza Node, Rust, `psql`, dostępność Postgresa na :5432 i plik `.env` |
 
 | Usługa | Adres | Opis |
 |---|---|---|
-| frontend | http://localhost:3000 | nginx serwuje SPA i przekazuje `/api` do backendu |
+| frontend | http://localhost:3000 (`npm start`) / http://localhost:5173 (`npm run dev`) | Vite serwuje SPA i przekazuje `/api` do backendu |
 | backend | http://localhost:8080/api | REST API (axum) |
-| db | localhost:5432 | PostgreSQL 16 (`astro` / `astro`, baza `astro_health`) |
+| db | localhost:5432 | lokalny PostgreSQL 16 (`astro` / `astro`, baza `astro_health`) |
 
-Usługa `seed` uruchamia się przed backendem. Wykonuje migracje, tworzy partycje parametrów
-i generuje dane demonstracyjne. W compose działa z flagą `--reset`, więc **przy każdym starcie
-dane demo są generowane od nowa** i kończą się na „teraz”. Inaczej po kilku dniach reguła
-„zaległy pomiar” oznaczyłaby wszystko jako zaległe. Aby zachować dane między restartami,
-usuń `--reset` z `docker-compose.yml`.
+Seeder uruchamia się przed każdym `npm start` i `npm run dev`. Wykonuje migracje, tworzy
+partycje parametrów i generuje dane demonstracyjne z flagą `--reset`, więc **przy każdym
+starcie dane demo są generowane od nowa** i kończą się na „teraz”. Inaczej po kilku dniach
+reguła „zaległy pomiar” oznaczyłaby wszystko jako zaległe. Aby zachować dane między
+restartami, uruchamiaj same procesy: `npm run start:backend` i `npm run start:frontend`
+(lub `dev:backend` / `dev:frontend`).
+
+### Konfiguracja (`.env`)
+
+Plik `.env` w katalogu głównym jest wczytywany automatycznie przez backend (server i seed)
+oraz przez proxy Vite. Zmienne ustawione w powłoce mają pierwszeństwo. Wzór: `.env.example`.
+
+| Zmienna | Domyślnie w `.env.example` | Opis |
+|---|---|---|
+| `DATABASE_URL` | `postgres://astro:astro@localhost:5432/astro_health` | wymagana |
+| `JWT_SECRET` | `change-me-in-production-please` | sekret podpisu JWT; poza dev ustaw losowy |
+| `JWT_TTL_MINUTES` | `480` | ważność sesji |
+| `BIND_ADDR` | `127.0.0.1:8080` | adres API; `0.0.0.0:8080`, by wystawić w sieci |
+| `CORS_ORIGINS` | `http://localhost:5173` | dozwolone originy przy bezpośrednich wywołaniach API |
+| `RUST_LOG` | `info` | poziom logów |
+| `VITE_API_PROXY` | `http://localhost:8080` | dokąd Vite (5173 i 3000) przekazuje `/api` |
+
+### Czego nie da się odtworzyć 1:1 bez Dockera
+
+* **Baza danych:** Postgres nie startuje już razem z aplikacją. Trzeba go zainstalować
+  i uruchomić jako usługę systemu; dane leżą w jego katalogu danych (zamiast wolumenu `pgdata`).
+* **Serwowanie frontendu w produkcji:** zamiast nginx `npm start` używa `vite preview`
+  (proxy `/api` i fallback SPA działają tak samo). Na publiczne wdrożenie lepiej postawić
+  `frontend/dist` za nginx/Caddy z tym samym proxy `/api` → :8080.
+* **Zarządzanie procesami:** nie ma restartu po awarii ani izolacji, które dawał kontener.
+  Na serwerze uruchamiaj binarki `backend/target/release/server` i `seed` przez systemd
+  (lub podobny menedżer usług).
+* **Toolchain:** Rust i Node nie są już przypięte obrazem; wersje pilnują `.nvmrc`,
+  `engines` i `npm run doctor`.
 
 ### Konta demonstracyjne (hasło dla wszystkich: `orbita2026`)
 
@@ -58,24 +125,6 @@ usuń `--reset` z `docker-compose.yml`.
 Na stacji Aurora trwa burza słoneczna (ostrzeżenie o promieniowaniu), a wymazy z powierzchni
 są zaległe od 20 dni (alert „warte uwagi”). Te alerty widzi każdy astronauta tej stacji.
 Postacie i stacje są fikcyjne.
-
-### Uruchomienie deweloperskie
-
-```bash
-docker compose up -d db
-cd backend
-export DATABASE_URL=postgres://astro:astro@localhost:5432/astro_health JWT_SECRET=dev
-cargo run --bin seed -- --reset   # migracje + dane demo
-cargo run --bin server            # API na :8080
-cargo test                        # domena, przypadki użycia, JWT
-
-cd ../frontend
-npm install
-npm run dev                       # http://localhost:5173 (proxy /api → :8080)
-```
-
-Zmienne backendu: `DATABASE_URL` (wymagana), `JWT_SECRET`, `JWT_TTL_MINUTES` (480),
-`BIND_ADDR` (`0.0.0.0:8080`), `CORS_ORIGINS` (`http://localhost:5173`), `RUST_LOG`.
 
 ---
 
@@ -363,7 +412,6 @@ w `groupWidgets` w rejestrze.
 ## Testy
 
 ```bash
-cd backend && cargo test     # domena (alerty, punktacja, zakres podmiotu), przypadki użycia, JWT
-cd frontend && npm test      # Vitest + Testing Library: alerty, tooltip profilu, zakładki
-cd frontend && npm run build # typecheck + build produkcyjny
+npm test          # cargo test (domena, przypadki użycia, JWT) + Vitest (alerty, tooltip, zakładki)
+npm run build     # build release backendu + typecheck i build produkcyjny frontendu
 ```

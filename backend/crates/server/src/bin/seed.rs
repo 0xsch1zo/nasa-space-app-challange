@@ -20,7 +20,7 @@ use domain::metrics::{MetricDefinition, MetricScope};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal};
-use server::{build, init_tracing, prepare_database, Config};
+use server::{build, init_tracing, load_env_file, prepare_database, Config};
 use uuid::Uuid;
 
 pub const DEMO_PASSWORD: &str = "orbita2026";
@@ -223,6 +223,7 @@ const SUPERVISORS: &[SupervisorSeed] = &[
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    load_env_file();
     init_tracing();
     let reset = std::env::args().any(|a| a == "--reset");
     let config = Config::from_env()?;

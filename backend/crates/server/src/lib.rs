@@ -43,6 +43,16 @@ impl Config {
     }
 }
 
+/// Loads variables from a `.env` file (searched in the current directory and
+/// its parents, so the repository-root `.env` is found when started through
+/// the npm scripts). Variables already set in the environment take
+/// precedence, so deployments can keep configuring everything via env vars.
+pub fn load_env_file() {
+    if let Ok(path) = dotenvy::dotenv() {
+        eprintln!("loaded environment from {}", path.display());
+    }
+}
+
 pub fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(

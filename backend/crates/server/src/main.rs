@@ -1,8 +1,9 @@
 use adapter_http::{router, AppState};
-use server::{build, init_tracing, prepare_database, Config};
+use server::{build, init_tracing, load_env_file, prepare_database, Config};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    load_env_file();
     init_tracing();
     let config = Config::from_env()?;
     let pool = adapter_postgres::connect(&config.database_url).await?;
