@@ -1426,6 +1426,7 @@ dependencies = [
  "axum",
  "chrono",
  "domain",
+ "dotenvy",
  "rand",
  "rand_distr",
  "tokio",
