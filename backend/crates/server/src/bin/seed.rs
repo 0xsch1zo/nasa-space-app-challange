@@ -243,7 +243,10 @@ async fn main() -> anyhow::Result<()> {
     let catalog = container.catalog.clone();
     let mut batch = Vec::new();
 
-    let station_ids: Vec<Uuid> = STATIONS.iter().map(|_| Uuid::new_v4()).collect();
+    let station_ids: Vec<Uuid> = STATIONS
+        .iter()
+        .map(|s| stable_id("station", s.name))
+        .collect();
     for (idx, (id, s)) in station_ids.iter().zip(STATIONS).enumerate() {
         writer.station(*id, s.name).await?;
         let mut rng = StdRng::seed_from_u64(500 + idx as u64);
@@ -282,7 +285,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     for (idx, c) in CREW.iter().enumerate() {
-        let id = Uuid::new_v4();
+        let id = stable_id("astronaut", c.username);
         let start: NaiveDate = (now - Duration::days(c.days_in_orbit - 1)).date_naive();
         writer
             .astronaut(
@@ -437,6 +440,13 @@ fn simulate(
         t += step;
     }
     out
+}
+
+/// Deterministic id derived from a name: re-seeding (`--reset`) keeps the
+/// same ids, so tokens issued before a reset still point at existing data.
+fn stable_id(kind: &str, name: &str) -> Uuid {
+    const NAMESPACE: Uuid = Uuid::from_u128(0x6a1f_3c2e_8b4d_4e7a_9c5f_0d2b_7e81_a4c3);
+    Uuid::new_v5(&NAMESPACE, format!("{kind}:{name}").as_bytes())
 }
 
 fn normal(sd: f64) -> Normal<f64> {

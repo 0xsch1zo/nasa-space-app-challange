@@ -86,11 +86,13 @@ impl CrewUseCase for CrewService {
         if !AccessPolicy::can_list_crew(principal) {
             return Err(AppError::Forbidden);
         }
+        // The caller's own station is missing: the token refers to data that
+        // no longer exists (e.g. after a reset), so the session is stale.
         let station = self
             .crew
             .find_station(principal.station_id)
             .await?
-            .ok_or(AppError::NotFound("station"))?;
+            .ok_or(AppError::Unauthenticated)?;
         let astronauts = self.crew.list_astronauts(principal.station_id).await?;
         let snapshots = self.snapshots.for_station(station.id).await?;
         Ok(astronauts
